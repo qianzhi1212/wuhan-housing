@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="《二手房数据采集与可视化分析》毕业设计阶段成果：基于武汉市3000条公开挂牌样本的数据清洗与交互式可视化。">
+  <meta name="description" content="《二手房数据采集与可视化分析》毕业设计阶段成果：基于武汉市公开挂牌样本的规则去重与交互式可视化。">
   <meta name="theme-color" content="#193e59">
   <title>二手房数据采集与可视化分析 · 毕业设计展示</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%23193e59'/%3E%3Cpath d='M9 29V19l11-9 11 9v10M16 29v-9h8v9' fill='none' stroke='white' stroke-width='2'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="./style.css">
-  <script src="./data.js" defer></script>
-  <script src="./app.js" defer></script>
+  <link rel="stylesheet" href="./style.css?v=9275877f45e7">
+  <script src="./data.js?v=8b17c1e1c992" defer></script>
+  <script src="./app.js?v=074c256f2fef" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main">跳到主要内容</a>
@@ -24,7 +24,7 @@
     </section>
     <section class="research-notes" aria-label="研究范围">
       <article><span class="note-index">01</span><div><h2>研究对象</h2><p>武汉市二手房公开挂牌信息，关注区域、朝向、建筑面积及价格。</p></div></article>
-      <article><span class="note-index">02</span><div><h2>研究范围</h2><p id="scopeText">15个平台区域，每区抽取200条；图表展示样本特征。</p></div></article>
+      <article><span class="note-index">02</span><div><h2>研究范围</h2><p id="scopeText">原始采样范围与规则去重后的分析样本分别说明。</p></div></article>
       <article><span class="note-index">03</span><div><h2>展示内容</h2><p>基础清洗、描述性统计与交互图表，支持按区域和朝向查看样本。</p></div></article>
     </section>
     <section class="section analysis-section" id="analysis" aria-labelledby="analysisTitle">
@@ -37,7 +37,7 @@
       </form>
       <div class="filter-summary" id="filterSummary" role="status" aria-live="polite"></div>
       <div class="metrics">
-        <article class="metric"><span>当前样本</span><p><strong id="countMetric">—</strong><small>条</small></p><div>按发布记录统计</div></article>
+        <article class="metric"><span>当前样本</span><p><strong id="countMetric">—</strong><small>条</small></p><div>使用按规则去重后的记录</div></article>
         <article class="metric"><span>挂牌单价中位数</span><p><strong id="unitMetric">—</strong><small>元/㎡</small></p><div>反映当前样本的价格位置</div></article>
         <article class="metric"><span>挂牌总价中位数</span><p><strong id="totalMetric">—</strong><small>万元</small></p><div>页面公开展示的报价</div></article>
         <article class="metric"><span>建筑面积中位数</span><p><strong id="areaMetric">—</strong><small>㎡</small></p><div>使用建筑面积口径</div></article>
@@ -54,13 +54,13 @@
     </section>
     <section class="section" id="quality" aria-labelledby="qualityTitle">
       <div class="section-heading"><div><p class="eyebrow">02 / DATA QUALITY</p><h2 id="qualityTitle">清洗结果与研究口径</h2><p>保留真实字段与不确定性，让图表能够回溯到样本。</p></div></div>
-      <div class="quality-strip"><div><span>原始发布记录</span><strong id="rawCount">—</strong></div><div><span>基础清洗后保留</span><strong id="cleanCount">—</strong></div><div><span>身份重复 / 无效排除</span><strong id="excludedCount">—</strong></div><div><span>疑似同房发布待核对</span><strong id="reviewCount">—</strong></div></div>
+      <div class="quality-strip"><div><span>原始发布记录</span><strong id="rawCount">—</strong></div><div><span>规则去重后保留</span><strong id="cleanCount">—</strong></div><div><span>身份重复 / 无效排除</span><strong id="excludedCount">—</strong></div><div><span>同条件重复剔除</span><strong id="reviewCount">—</strong></div></div>
       <div class="method-grid">
         <article class="method-card"><span class="method-index">A</span><h3>单位与字段核对</h3><p>统一使用面积“㎡”、总价“万元”、单价“元/㎡”。检查关键字段与日期，保留页面原值，不编造缺失信息。</p></article>
-        <article class="method-card"><span class="method-index">B</span><h3>重复记录审慎处理</h3><p id="duplicateNote">条件相同而发布编号不同的记录仅标记待核对，不直接合并成一套住宅。</p></article>
+        <article class="method-card"><span class="method-index">B</span><h3>同条件记录去重</h3><p id="duplicateNote">同一观察日内，六项特征相同的记录每组保留最新采集的一条。</p></article>
         <article class="method-card"><span class="method-index">C</span><h3>结果适用范围</h3><p>价格均为挂牌价，与成交价有别。单个平台、单日的配额样本不代表武汉全市市场，也不用于判断房源实时在售状态。</p></article>
       </div>
-      <details class="research-detail"><summary>进一步了解研究进度与分析边界<span aria-hidden="true">＋</span></summary><div><p>当前页面展示已完成采集和基础清洗样本的描述性结果。疑似同房发布尚需人工复核，图表仍按发布记录统计。</p><p>区域、朝向的多因素方差分析，以及面积与挂牌总价的一元线性回归，将在样本复核和模型条件检查后补充。本页面不提前展示显著性、预测或因果结论。</p><p>当前仅有一个观察日，不能以同日多次采集代替跨日期观察，因此未绘制每日变化趋势。区域名称采用平台标签，不等同于武汉行政区划。</p></div></details>
+      <details class="research-detail"><summary>进一步了解研究进度与分析边界<span aria-hidden="true">＋</span></summary><div><p>当前图表使用按同条件规则去重后的记录。相同特征可能对应不同住宅，规则去重不代表已确认房屋身份；完整原始备份和剔除名单仍保留以便复核。</p><p>区域、朝向的多因素方差分析，以及面积与挂牌总价的一元线性回归，将在分组和模型条件检查后补充。本页面不提前展示显著性、预测或因果结论。</p><p>当前仅有一个观察日，不能以同日多次采集代替跨日期观察，因此未绘制每日变化趋势。区域名称采用平台标签，不等同于武汉行政区划。</p></div></details>
     </section>
     <section class="section card sample-section" id="samples" aria-labelledby="samplesTitle">
       <div class="card-heading sample-heading"><div><span class="figure-no">03 / SAMPLE RECORDS</span><h2 id="samplesTitle">样本明细 <span id="tableCount" class="count-tag">—</span></h2><p>与上方筛选联动，可排序、下载或访问公开来源页面。</p></div><div class="table-actions"><label>排列方式<select id="sortSelect" aria-label="样本排列方式"><option value="default">原样本顺序</option><option value="unit_price_yuan:asc">单价从低到高</option><option value="unit_price_yuan:desc">单价从高到低</option><option value="total_price_wan:asc">总价从低到高</option><option value="total_price_wan:desc">总价从高到低</option><option value="area_sqm:asc">面积从小到大</option><option value="area_sqm:desc">面积从大到小</option></select></label><button class="button secondary" id="exportButton" type="button">下载筛选数据 ↓</button></div></div>

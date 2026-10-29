@@ -169,7 +169,6 @@
       const title=el("div","sample-title",item.community||"未标注小区");title.title=item.community||"未标注小区";
       const subtitle=el("div","sample-subtitle",item.title||"");subtitle.title=item.title||"";
       name.append(title,subtitle);
-      if(item.suspected_duplicate)name.append(el("span","review-tag","疑似同房发布 · 待核对"));
       row.append(name,el("td","",item.district),el("td","",item.layout),el("td","price-cell",fmt(item.area_sqm)+"㎡"),el("td","price-cell strong",fmt(item.total_price_wan)+"万"),el("td","price-cell",fmt(item.unit_price_yuan)),el("td","",item.orientation));
       const td=el("td"),href=sourceUrl(item.url);
       if(href){const a=el("a","source-link","原页面 ↗");a.href=href;a.target="_blank";a.rel="noopener noreferrer";a.setAttribute("aria-label","查看"+(item.community||"房源")+"的公开来源页面");td.append(a);}else td.textContent="—";
@@ -198,9 +197,9 @@
     return '"'+text.replaceAll('"','""')+'"';
   }
   function download() {
-    const columns=[["community","小区"],["district","区域"],["layout","户型"],["area_sqm","建筑面积_平方米"],["total_price_wan","挂牌总价_万元"],["unit_price_yuan","挂牌单价_元每平方米"],["orientation","朝向"],["suspected_duplicate","疑似同房发布待核对"],["url","公开来源"]];
+    const columns=[["community","小区"],["district","区域"],["layout","户型"],["area_sqm","建筑面积_平方米"],["total_price_wan","挂牌总价_万元"],["unit_price_yuan","挂牌单价_元每平方米"],["orientation","朝向"],["url","公开来源"]];
     const lines=[columns.map(c=>csvCell(c[1])).join(",")];
-    filtered.forEach(row=>lines.push(columns.map(([key])=>csvCell(key==="suspected_duplicate"?(row[key]?"是":""):row[key])).join(",")));
+    filtered.forEach(row=>lines.push(columns.map(([key])=>csvCell(row[key])).join(",")));
     const url=URL.createObjectURL(new Blob(["\ufeff"+lines.join("\r\n")],{type:"text/csv;charset=utf-8"}));
     const link=el("a");link.href=url;link.download="武汉二手房样本_"+data.date+".csv";document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
     $("toast").textContent="已导出 "+filtered.length+" 条筛选样本";$("toast").classList.add("visible");clearTimeout(timer);timer=setTimeout(()=>$("toast").classList.remove("visible"),2800);
@@ -209,11 +208,14 @@
   $("heroRegions").textContent=Object.keys(data.region_counts).length;
   $("observationDate").textContent=data.date.replaceAll("-",".");
   const q=data.quality;
+  const rawCounts=Object.values(data.raw_region_counts||{});
+  const quota=rawCounts.length&&rawCounts.every(n=>n===rawCounts[0])?"，每区"+rawCounts[0]+"条":"";
+  $("scopeText").textContent="原始样本覆盖"+Object.keys(data.raw_region_counts||data.region_counts).length+"个平台区域"+quota+"；规则去重后使用"+nf.format(data.records.length)+"条。";
   $("rawCount").textContent=nf.format(q.input_records);
   $("cleanCount").textContent=nf.format(q.cleaned_listing_records);
   $("excludedCount").textContent=q.identity_duplicates_removed+" / "+q.invalid_records_excluded;
-  $("reviewCount").textContent=q.suspected_duplicate_groups+"组 · "+q.suspected_duplicate_records+"条";
-  $("duplicateNote").textContent=q.suspected_duplicate_groups+"组、"+q.suspected_duplicate_records+"条记录在区域、小区、户型、面积、朝向和总价上相同，但发布编号不同。仅标记待核对，不直接合并成一套住宅。";
+  $("reviewCount").textContent=nf.format(q.signature_duplicates_removed)+"条";
+  $("duplicateNote").textContent="在同一来源与观察日内，区域、小区、户型、面积、朝向和总价均相同的"+q.suspected_duplicate_groups+"组记录，每组保留采集时间最新的一条，剔除"+q.signature_duplicates_removed+"条。此规则不代表已确认同一套住宅。";
   ["district","orientation"].forEach(key=>{
     [...new Set(data.records.map(r=>r[key]).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"zh-CN")).forEach(value=>$(key+"Filter").append(new Option(value,value)));
     $(key+"Filter").addEventListener("change",event=>{state[key]=event.target.value;state.page=1;render();});
