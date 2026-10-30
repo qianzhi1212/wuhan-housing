@@ -4,71 +4,217 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="description" content="《二手房数据采集与可视化分析》毕业设计阶段成果：基于武汉市公开挂牌样本的规则去重与交互式可视化。">
-  <meta name="theme-color" content="#193e59">
+  <meta name="theme-color" content="#123f55">
+  <meta name="color-scheme" content="light">
   <title>二手房数据采集与可视化分析 · 毕业设计展示</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%23193e59'/%3E%3Cpath d='M9 29V19l11-9 11 9v10M16 29v-9h8v9' fill='none' stroke='white' stroke-width='2'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="./style.css?v=9275877f45e7">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='8' fill='%23123f55'/%3E%3Cpath d='M9 29V19l11-9 11 9v10M16 29v-9h8v9' fill='none' stroke='white' stroke-width='2'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="./style.css?v=4dc7ee4bce06">
   <script src="./data.js?v=8b17c1e1c992" defer></script>
-  <script src="./app.js?v=074c256f2fef" defer></script>
+  <script src="./app.js?v=ac7556f778f5" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main">跳到主要内容</a>
+
   <header class="site-header">
-    <a class="brand" href="#overview" aria-label="武汉房源数据研究首页"><span class="brand-mark">WH<span>·</span></span><span>武汉房源数据研究<small>毕业设计 · 阶段成果展示</small></span></a>
-    <nav aria-label="页面导航"><a href="#overview">研究概览</a><a href="#analysis">基础可视化</a><a href="#quality">清洗与口径</a><a href="#samples">样本明细</a></nav>
+    <div class="site-header-inner">
+      <a class="brand" href="#overview">武汉房源数据研究</a>
+      <nav id="siteNav" aria-label="页面导航">
+        <a href="#overview">研究概览</a>
+        <a href="#analysis">基础可视化</a>
+        <a href="#quality">清洗与口径</a>
+        <a href="#samples">样本明细</a>
+      </nav>
+    </div>
   </header>
+
+  <div class="preview-banner" id="previewBanner" role="note" hidden>
+    <p><strong>预览模式</strong><span id="previewText"></span></p>
+  </div>
+  <div class="data-error" id="dataError" role="alert" hidden></div>
+
   <main id="main">
-    <section class="hero section" id="overview" aria-labelledby="project-title">
-      <div class="hero-copy"><p class="eyebrow">GRADUATION PROJECT / 大数据技术</p><h1 id="project-title">二手房数据采集<br>与可视化分析</h1><p class="hero-description">以武汉市二手房挂牌数据为研究对象，<br class="desktop-break">从样本整理出发，观察区域、朝向与面积背后的价格特征。</p><div class="hero-meta"><span>研究地点 <strong>武汉</strong></span><span>观察日期 <strong id="observationDate">—</strong></span></div><a class="hero-link" href="#analysis">探索样本与图表 <span aria-hidden="true">↗</span></a></div>
-      <div class="hero-stat"><span class="stat-kicker">研究样本</span><div class="hero-number" id="heroCount">—</div><p>条二手房发布记录</p><div class="hero-rule"></div><div class="hero-pair"><span><strong id="heroRegions">—</strong>个平台区域</span><span><strong>1</strong>个观察日</span></div><p class="hero-caption">真实挂牌样本 · 保留原始采集时间</p></div>
+    <!-- 研究概览 -->
+    <section class="overview wrap" id="overview" aria-labelledby="project-title">
+      <div class="overview-main">
+        <h1 id="project-title">二手房数据采集与可视化分析</h1>
+        <p class="subtitle">基于武汉市二手房挂牌样本，展示价格分布、区域差异与房源特征。</p>
+        <dl class="scope-list">
+          <div><dt>研究对象</dt><dd>武汉市二手房公开挂牌信息，关注区域、朝向、建筑面积及价格。</dd></div>
+          <div><dt>研究范围</dt><dd id="scopeText">原始采样范围与规则去重后的分析样本分别说明。</dd></div>
+          <div><dt>展示内容</dt><dd>基础清洗、描述性统计与交互图表，支持按区域和朝向查看样本。</dd></div>
+        </dl>
+      </div>
+      <aside class="data-note" aria-labelledby="dataNoteTitle">
+        <h2 id="dataNoteTitle">数据说明</h2>
+        <dl>
+          <div><dt>数据来源</dt><dd id="sourceName">房天下公开挂牌页面</dd></div>
+          <div><dt>观察日期</dt><dd id="observationDate">—</dd></div>
+          <div><dt>价格单位</dt><dd>挂牌总价：万元；挂牌单价：元/㎡；建筑面积：㎡。</dd></div>
+          <div><dt>区域分类</dt><dd>共 <span id="regionCount">—</span> 个平台区域，沿用房源页面中的区域名称。</dd></div>
+          <div><dt>图表内容</dt><dd>区域价格、朝向构成、面积与总价、单价分布及热力图。</dd></div>
+        </dl>
+      </aside>
     </section>
-    <section class="research-notes" aria-label="研究范围">
-      <article><span class="note-index">01</span><div><h2>研究对象</h2><p>武汉市二手房公开挂牌信息，关注区域、朝向、建筑面积及价格。</p></div></article>
-      <article><span class="note-index">02</span><div><h2>研究范围</h2><p id="scopeText">原始采样范围与规则去重后的分析样本分别说明。</p></div></article>
-      <article><span class="note-index">03</span><div><h2>展示内容</h2><p>基础清洗、描述性统计与交互图表，支持按区域和朝向查看样本。</p></div></article>
-    </section>
-    <section class="section analysis-section" id="analysis" aria-labelledby="analysisTitle">
-      <div class="section-heading"><div><p class="eyebrow">01 / DATA EXPLORATION</p><h2 id="analysisTitle">从样本看挂牌特征</h2><p>筛选条件同步作用于下方统计、图表和样本明细。</p></div><span class="section-label">描述性分析</span></div>
-      <form id="filters" class="filter-panel" role="search" aria-label="筛选研究样本">
-        <label>区域<select id="districtFilter" aria-label="筛选区域"><option value="">全部区域</option></select></label>
-        <label>朝向<select id="orientationFilter" aria-label="筛选朝向"><option value="">全部朝向</option></select></label>
-        <label class="search-filter">小区或房源关键词<input type="search" id="searchInput" placeholder="输入小区或房源标题" aria-label="搜索小区或房源标题"></label>
-        <button class="button secondary" id="resetFilters" type="reset">重置筛选</button>
+
+    <!-- 基础可视化 -->
+    <section class="section analysis wrap" id="analysis" aria-labelledby="analysisTitle">
+      <div class="section-head">
+        <h2 id="analysisTitle">从样本看挂牌特征</h2>
+        <p>按区域、朝向或关键词筛选，统计、图表和明细同步更新。</p>
+      </div>
+
+      <form id="filters" class="filterbar" role="search" aria-label="筛选研究样本">
+        <label class="field"><span>区域</span>
+          <select id="districtFilter"><option value="">全部区域</option></select>
+        </label>
+        <label class="field"><span>朝向</span>
+          <select id="orientationFilter"><option value="">全部朝向</option></select>
+        </label>
+        <label class="field field-grow"><span>小区或房源关键词</span>
+          <input type="search" id="searchInput" placeholder="输入小区名称或房源标题中的字词" autocomplete="off">
+        </label>
+        <button class="btn" id="resetFilters" type="reset">重置筛选</button>
+        <p class="filter-summary" id="filterSummary" role="status" aria-live="polite"></p>
       </form>
-      <div class="filter-summary" id="filterSummary" role="status" aria-live="polite"></div>
-      <div class="metrics">
-        <article class="metric"><span>当前样本</span><p><strong id="countMetric">—</strong><small>条</small></p><div>使用按规则去重后的记录</div></article>
-        <article class="metric"><span>挂牌单价中位数</span><p><strong id="unitMetric">—</strong><small>元/㎡</small></p><div>反映当前样本的价格位置</div></article>
-        <article class="metric"><span>挂牌总价中位数</span><p><strong id="totalMetric">—</strong><small>万元</small></p><div>页面公开展示的报价</div></article>
-        <article class="metric"><span>建筑面积中位数</span><p><strong id="areaMetric">—</strong><small>㎡</small></p><div>使用建筑面积口径</div></article>
+
+      <dl class="stats" aria-label="当前筛选下的描述统计">
+        <div><dt>当前样本<span class="preview-tag" hidden>示例子集</span></dt><dd><strong id="countMetric">—</strong><small>条</small></dd></div>
+        <div><dt>挂牌单价中位数</dt><dd><strong id="unitMetric">—</strong><small>元/㎡</small></dd></div>
+        <div><dt>挂牌总价中位数</dt><dd><strong id="totalMetric">—</strong><small>万元</small></dd></div>
+        <div><dt>建筑面积中位数</dt><dd><strong id="areaMetric">—</strong><small>㎡</small></dd></div>
+      </dl>
+
+      <div class="fig-grid">
+        <figure class="fig fig-district" aria-labelledby="fig1Title">
+          <div class="fig-head">
+            <h3 id="fig1Title"><span class="fig-no">图1</span>各区域挂牌单价中位数<span class="preview-tag" hidden>示例子集</span></h3>
+            <p>单位：元/㎡。条形右侧为该区域样本量 n；虚线为当前筛选下全部样本的中位数。</p>
+          </div>
+          <div id="districtChart" class="chart" role="img" aria-label="各区域挂牌单价中位数"></div>
+        </figure>
+
+        <figure class="fig fig-orient" aria-labelledby="fig2Title">
+          <div class="fig-head">
+            <h3 id="fig2Title"><span class="fig-no">图2</span>样本朝向构成<span class="preview-tag" hidden>示例子集</span></h3>
+            <p>按页面标注的朝向分类，显示记录数及占当前样本的比例。</p>
+          </div>
+          <div id="orientationChart" class="chart" role="img" aria-label="样本朝向数量及占比"></div>
+        </figure>
+
+        <figure class="fig fig-scatter" aria-labelledby="fig3Title">
+          <div class="fig-head">
+            <h3 id="fig3Title"><span class="fig-no">图3</span>建筑面积与挂牌总价<span class="preview-tag" hidden>示例子集</span></h3>
+            <p>每个圆点是一条发布记录；悬停或轻触圆点查看详情，虚线为中位数。</p>
+          </div>
+          <div id="scatterChart" class="chart chart-scatter"></div>
+        </figure>
+
+        <figure class="fig fig-hist" aria-labelledby="fig4Title">
+          <div class="fig-head">
+            <h3 id="fig4Title"><span class="fig-no">图4</span>挂牌单价分布<span class="preview-tag" hidden>示例子集</span></h3>
+            <p>各单价区间的样本数量，单位：条。</p>
+          </div>
+          <div id="histogramChart" class="chart chart-hist"></div>
+        </figure>
+
+        <figure class="fig fig-heat" aria-labelledby="fig5Title">
+          <div class="fig-head fig-head-split">
+            <div>
+              <h3 id="fig5Title"><span class="fig-no">图5</span>区域与朝向的挂牌单价中位数<span class="preview-tag" hidden>示例子集</span></h3>
+              <p>单位：元/㎡。每格上方为中位数，括号内为样本量；行、列标题旁为该行、该列的样本总量。</p>
+            </div>
+            <div class="heat-legend" aria-label="色阶图例">
+              <span id="heatMin">—</span>
+              <i aria-hidden="true"></i>
+              <span id="heatMax">—</span>
+              <span class="heat-low"><b aria-hidden="true"></b>样本量少于 5</span>
+            </div>
+          </div>
+          <div class="heat-scroll" id="heatmapChart" tabindex="0" role="region" aria-label="区域与朝向挂牌单价中位数热力表，可横向滚动"></div>
+          <figcaption>“—”表示无样本；虚线框表示少于 5 条记录。</figcaption>
+        </figure>
       </div>
-      <div class="chart-grid first-charts">
-        <article class="card"><div class="card-heading"><div><span class="figure-no">FIG. 01</span><h3>区域挂牌单价对比</h3><p>各区域样本单价中位数 · 元/㎡</p></div><span class="chip">区域比较</span></div><div id="districtChart" class="bar-chart" role="img" aria-label="各区域挂牌单价中位数"></div><p class="figure-note">样本量由采集配额决定，不能据此比较全市各区域的房源占比。</p></article>
-        <article class="card"><div class="card-heading"><div><span class="figure-no">FIG. 02</span><h3>样本朝向构成</h3><p>以页面标注的朝向分类统计</p></div></div><div id="orientationChart" class="donut-layout" role="img" aria-label="样本朝向数量及占比"></div><p class="figure-note">保留南北、东西等组合朝向，少见朝向按原标签展示。</p></article>
-      </div>
-      <div class="chart-grid second-charts">
-        <article class="card"><div class="card-heading"><div><span class="figure-no">FIG. 03</span><h3>建筑面积与挂牌总价</h3><p>每个圆点对应一条发布记录，悬停或轻触查看</p></div></div><div id="scatterChart" class="scatter-wrap" role="img" aria-label="面积与挂牌总价散点图"></div><p class="figure-note">使用全部有效样本展示分布；图中尚未叠加回归拟合线。</p></article>
-        <article class="card"><div class="card-heading"><div><span class="figure-no">FIG. 04</span><h3>挂牌单价分布</h3><p>各单价区间的样本数量 · 元/㎡</p></div></div><div id="histogramChart" class="histogram" role="img" aria-label="挂牌单价区间分布"></div><p class="figure-note">单价分组仅用于图表展示，不作为删除高价或低价记录的依据。</p></article>
-      </div>
-      <article class="card heatmap-card"><div class="card-heading"><div><span class="figure-no">FIG. 05</span><h3>区域 × 朝向的挂牌单价</h3><p>单元格为挂牌单价中位数，括号内为样本量；悬停查看完整信息。</p></div><span class="heat-legend"><i></i>价格由浅到深</span></div><div class="heatmap-scroll" id="heatmapChart"></div><p class="figure-note">“—”表示当前筛选下没有样本，不代表价格为0。小样本组合需谨慎解释，不能据此推断因素显著性。</p></article>
     </section>
-    <section class="section" id="quality" aria-labelledby="qualityTitle">
-      <div class="section-heading"><div><p class="eyebrow">02 / DATA QUALITY</p><h2 id="qualityTitle">清洗结果与研究口径</h2><p>保留真实字段与不确定性，让图表能够回溯到样本。</p></div></div>
-      <div class="quality-strip"><div><span>原始发布记录</span><strong id="rawCount">—</strong></div><div><span>规则去重后保留</span><strong id="cleanCount">—</strong></div><div><span>身份重复 / 无效排除</span><strong id="excludedCount">—</strong></div><div><span>同条件重复剔除</span><strong id="reviewCount">—</strong></div></div>
-      <div class="method-grid">
-        <article class="method-card"><span class="method-index">A</span><h3>单位与字段核对</h3><p>统一使用面积“㎡”、总价“万元”、单价“元/㎡”。检查关键字段与日期，保留页面原值，不编造缺失信息。</p></article>
-        <article class="method-card"><span class="method-index">B</span><h3>同条件记录去重</h3><p id="duplicateNote">同一观察日内，六项特征相同的记录每组保留最新采集的一条。</p></article>
-        <article class="method-card"><span class="method-index">C</span><h3>结果适用范围</h3><p>价格均为挂牌价，与成交价有别。单个平台、单日的配额样本不代表武汉全市市场，也不用于判断房源实时在售状态。</p></article>
+
+    <!-- 清洗与口径 -->
+    <section class="section quality wrap" id="quality" aria-labelledby="qualityTitle">
+      <div class="section-head">
+        <h2 id="qualityTitle">数据整理</h2>
+        <p>完整样本的整理结果。</p>
       </div>
-      <details class="research-detail"><summary>进一步了解研究进度与分析边界<span aria-hidden="true">＋</span></summary><div><p>当前图表使用按同条件规则去重后的记录。相同特征可能对应不同住宅，规则去重不代表已确认房屋身份；完整原始备份和剔除名单仍保留以便复核。</p><p>区域、朝向的多因素方差分析，以及面积与挂牌总价的一元线性回归，将在分组和模型条件检查后补充。本页面不提前展示显著性、预测或因果结论。</p><p>当前仅有一个观察日，不能以同日多次采集代替跨日期观察，因此未绘制每日变化趋势。区域名称采用平台标签，不等同于武汉行政区划。</p></div></details>
+
+      <div class="ledger">
+        <div class="flow" role="img" id="flowFigure" aria-label="原始记录与保留记录的数量对比">
+          <p class="flow-title" aria-hidden="true">原始发布记录 <b id="flowRawText">—</b> 条</p>
+          <div class="flow-bar"><span class="flow-kept" id="flowKept"></span><span class="flow-removed" id="flowRemoved"></span></div>
+          <div class="flow-labels"><span>保留 <b id="flowKeptText">—</b> 条</span><span>剔除 <b id="flowRemovedText">—</b> 条</span></div>
+        </div>
+        <p id="duplicateNote">按区域、小区、户型、面积、朝向和总价匹配记录，每组保留最近采集的一条。</p>
+      </div>
     </section>
-    <section class="section card sample-section" id="samples" aria-labelledby="samplesTitle">
-      <div class="card-heading sample-heading"><div><span class="figure-no">03 / SAMPLE RECORDS</span><h2 id="samplesTitle">样本明细 <span id="tableCount" class="count-tag">—</span></h2><p>与上方筛选联动，可排序、下载或访问公开来源页面。</p></div><div class="table-actions"><label>排列方式<select id="sortSelect" aria-label="样本排列方式"><option value="default">原样本顺序</option><option value="unit_price_yuan:asc">单价从低到高</option><option value="unit_price_yuan:desc">单价从高到低</option><option value="total_price_wan:asc">总价从低到高</option><option value="total_price_wan:desc">总价从高到低</option><option value="area_sqm:asc">面积从小到大</option><option value="area_sqm:desc">面积从大到小</option></select></label><button class="button secondary" id="exportButton" type="button">下载筛选数据 ↓</button></div></div>
-      <div class="table-scroll"><table class="sample-table"><thead><tr><th scope="col">房源 / 小区</th><th scope="col">区域</th><th scope="col">户型</th><th scope="col">建筑面积</th><th scope="col">挂牌总价</th><th scope="col">挂牌单价</th><th scope="col">朝向</th><th scope="col">来源</th></tr></thead><tbody id="tableBody"></tbody></table></div>
-      <div class="table-footer"><span id="pageSummary"></span><div class="pagination"><button id="prevPage" type="button" aria-label="上一页">←</button><span id="pageNumber"></span><button id="nextPage" type="button" aria-label="下一页">→</button></div></div>
+
+    <!-- 样本明细 -->
+    <section class="section samples wrap" id="samples" aria-labelledby="samplesTitle">
+      <div class="section-head section-head-split">
+        <div>
+          <h2 id="samplesTitle">样本明细 <span id="tableCount" class="count-tag">—</span><span class="preview-tag" hidden>示例子集</span></h2>
+          <p>与上方筛选联动，可按数值排序、下载筛选结果，或访问公开来源页面。</p>
+        </div>
+        <div class="table-actions">
+          <label class="field"><span>排列方式</span>
+            <select id="sortSelect">
+              <option value="default">原样本顺序</option>
+              <option value="unit_price_yuan:asc">单价从低到高</option>
+              <option value="unit_price_yuan:desc">单价从高到低</option>
+              <option value="total_price_wan:asc">总价从低到高</option>
+              <option value="total_price_wan:desc">总价从高到低</option>
+              <option value="area_sqm:asc">面积从小到大</option>
+              <option value="area_sqm:desc">面积从大到小</option>
+            </select>
+          </label>
+          <button class="btn btn-primary" id="exportButton" type="button">下载筛选数据（CSV）</button>
+        </div>
+      </div>
+
+      <div class="table-scroll" tabindex="0" role="region" aria-label="样本明细表，可横向滚动">
+        <table class="sample-table" role="table">
+          <caption class="sr-only">武汉二手房挂牌样本明细</caption>
+          <thead>
+            <tr role="row">
+              <th scope="col" role="columnheader">小区 / 房源标题</th>
+              <th scope="col" role="columnheader">区域</th>
+              <th scope="col" role="columnheader">户型</th>
+              <th scope="col" role="columnheader" class="num" data-sort-key="area_sqm" aria-sort="none"><button type="button" class="sort-btn" data-key="area_sqm">建筑面积<small>㎡</small></button></th>
+              <th scope="col" role="columnheader" class="num" data-sort-key="total_price_wan" aria-sort="none"><button type="button" class="sort-btn" data-key="total_price_wan">挂牌总价<small>万元</small></button></th>
+              <th scope="col" role="columnheader" class="num" data-sort-key="unit_price_yuan" aria-sort="none"><button type="button" class="sort-btn" data-key="unit_price_yuan">挂牌单价<small>元/㎡</small></button></th>
+              <th scope="col" role="columnheader">朝向</th>
+              <th scope="col" role="columnheader">来源</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+
+      <div class="table-footer">
+        <span id="pageSummary"></span>
+        <div class="pagination">
+          <button class="btn btn-small" id="firstPage" type="button">首页</button>
+          <button class="btn btn-small" id="prevPage" type="button">上一页</button>
+          <span id="pageNumber" aria-live="polite"></span>
+          <button class="btn btn-small" id="nextPage" type="button">下一页</button>
+          <button class="btn btn-small" id="lastPage" type="button">末页</button>
+        </div>
+      </div>
     </section>
-    <footer><span>《二手房数据采集与可视化分析》<small>大数据技术毕业设计 · 阶段成果展示</small></span><p>数据来源：房天下公开挂牌页面<br>本页用于学术研究展示，图表仅反映实际采集样本。</p></footer>
   </main>
+
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <p><strong>《二手房数据采集与可视化分析》</strong><br>大数据技术毕业设计，阶段成果展示</p>
+      <p>数据来源：房天下公开挂牌页面。<br>武汉市二手房数据可视化展示。</p>
+    </div>
+  </footer>
+
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <noscript><p class="noscript">请启用浏览器 JavaScript，以查看交互图表和房源样本。</p></noscript>
 </body>
