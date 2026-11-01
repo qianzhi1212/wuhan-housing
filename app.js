@@ -1,665 +1,92 @@
 (() => {
-  "use strict";
-
-  /* ------------------------------------------------------------------
-   * 数据契约：data.js 必须提供 window.HOUSING_DATA，结构如下
-   *   { date, source, records[], quality{}, region_counts{}, raw_region_counts{} }
-   * 其中 records 每条含 district / community / layout / orientation /
-   * area_sqm / total_price_wan / unit_price_yuan / title / url。
-   * 若数据含 _preview.preview_only === true，页面进入“示例子集预览”模式：
-   * 统计、图表、明细仅来自示例记录，并带有醒目标注；概览与清洗口径中的
-   * 全量数字来自完整数据集的元数据（quality / region_counts）。
-   * ------------------------------------------------------------------ */
-
-  const $ = id => document.getElementById(id);
-  const data = window.HOUSING_DATA;
-
-  if (!data || !Array.isArray(data.records)) {
-    const message = "样本数据暂未加载，请刷新页面后重试。";
-    const summary = $("filterSummary");
-    if (summary) summary.textContent = message;
-    const error = $("dataError");
-    if (error) { error.textContent = message; error.hidden = false; }
-    return;
-  }
-
-  const nf = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 });
-  const NA = "未标注";
-  const LOW_N = 5;          // 热力表中“样本量较少”的提示阈值（仅用于版面提示）
-  const PAGE_SIZE = 12;
-  const NS = "http://www.w3.org/2000/svg";
-  const preview = data._preview && data._preview.preview_only === true ? data._preview : null;
-  const quality = data.quality || {};
-
-  const labelOf = value => {
-    const text = typeof value === "string" ? value.trim() : "";
-    return text || NA;
-  };
-  // 复制记录并补充规范化后的区域/朝向，避免缺失标签导致图表与筛选不一致。
-  const rows = data.records.map((record, index) => Object.assign({}, record, {
-    __i: index,
-    __d: labelOf(record.district),
-    __o: labelOf(record.orientation)
-  }));
-
-  const state = { district: "", orientation: "", query: "", sort: "default", page: 1 };
-  let filtered = [];
-  let toastTimer;
-
-  /* ---------- 基础工具 ---------- */
-  const el = (tag, cls, text) => {
-    const node = document.createElement(tag);
-    if (cls) node.className = cls;
-    if (text !== undefined) node.textContent = text;
-    return node;
-  };
-  const svgEl = (tag, attrs = {}, text) => {
-    const node = document.createElementNS(NS, tag);
-    Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, String(value)));
-    if (text !== undefined) node.textContent = text;
-    return node;
-  };
-  const valid = value => typeof value === "number" && Number.isFinite(value) && value > 0;
-  const fmt = value => (valid(value) ? nf.format(value) : "—");
-  const count = value => (typeof value === "number" && Number.isFinite(value) ? nf.format(value) : "—");
-  const percent = share => {
-    const p = share * 100;
-    return p < 0.1 ? "＜0.1%" : p.toFixed(1) + "%";
-  };
-  const setText = (id, text) => { const node = $(id); if (node) node.textContent = text; };
-
-  function median(list, key) {
-    const values = list.map(r => r[key]).filter(valid).sort((a, b) => a - b);
-    const n = values.length;
-    return n ? (values[Math.floor(n / 2)] + values[Math.floor((n - 1) / 2)]) / 2 : null;
-  }
-  function groupBy(list, keyFn) {
-    const map = new Map();
-    for (const row of list) {
-      const key = keyFn(row);
-      if (!map.has(key)) map.set(key, []);
-      map.get(key).push(row);
-    }
-    return map;
-  }
-  function niceTicks(max, target) {
-    const safe = max > 0 ? max : 1;
-    const rough = safe / target;
-    const power = Math.pow(10, Math.floor(Math.log10(rough)));
-    const f = rough / power;
-    const step = (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * power;
-    const top = Math.ceil(safe / step - 1e-9) * step;
-    const ticks = [];
-    for (let i = 0; i <= Math.round(top / step); i++) ticks.push(Math.round(i * step * 1e6) / 1e6);
-    return { ticks, top };
-  }
-  function empty(container, message) {
-    container.replaceChildren(el("div", "empty", message || "当前筛选条件下暂无样本。请放宽关键词，或选择“全部区域”“全部朝向”。"));
-  }
-  const previewSuffix = () => (preview ? "（示例子集）" : "");
-
-  /* ---------- 图1 区域挂牌单价中位数 ---------- */
-  function renderDistrict() {
-    const box = $("districtChart");
-    const items = [...groupBy(filtered, r => r.__d)]
-      .map(([name, list]) => ({ name, n: list.length, med: median(list, "unit_price_yuan") }))
-      .filter(d => valid(d.med))
-      .sort((a, b) => b.med - a.med || a.name.localeCompare(b.name, "zh-CN"));
-    if (!items.length) { box.removeAttribute("aria-label"); return empty(box); }
-    const overall = median(filtered, "unit_price_yuan");
-    const max = items[0].med;
-    box.replaceChildren();
-    box.setAttribute("aria-label", "各区域挂牌单价中位数（元/㎡），由高到低：" +
-      items.map(d => d.name + " " + nf.format(d.med) + "，样本 " + d.n + " 条").join("；"));
-
-    const key = el("p", "chart-key");
-    key.append(el("i", "key-dash"), document.createTextNode("当前筛选的单价中位数 " + fmt(overall)));
-    key.setAttribute("aria-hidden", "true");
-    const list = el("div", "hbars");
-    list.setAttribute("aria-hidden", "true");
-    items.forEach(d => {
-      const row = el("div", "hbar");
-      row.title = d.name + "：单价中位数 " + nf.format(d.med) + " 元/㎡，" + d.n + " 条样本";
-      const track = el("span", "hbar-track");
-      const fill = el("span", "hbar-fill");
-      fill.style.width = (d.med / max * 100) + "%";
-      track.append(fill);
-      if (valid(overall)) {
-        const mark = el("span", "hbar-ref");
-        mark.style.left = Math.min(100, overall / max * 100) + "%";
-        track.append(mark);
-      }
-      row.append(el("span", "hbar-label", d.name), track,
-        el("span", "hbar-value", nf.format(d.med)), el("span", "hbar-n", "n=" + nf.format(d.n)));
-      list.append(row);
-    });
-    box.append(key, list);
-  }
-
-  /* ---------- 图2 朝向构成 ---------- */
-  function renderOrientation() {
-    const box = $("orientationChart");
-    const items = [...groupBy(filtered, r => r.__o)]
-      .map(([name, list]) => ({ name, n: list.length }))
-      .sort((a, b) => b.n - a.n || a.name.localeCompare(b.name, "zh-CN"));
-    if (!items.length) { box.removeAttribute("aria-label"); return empty(box); }
-    const total = filtered.length;
-    const cls = i => (i < 5 ? "o" + i : "o-rest");
-    box.replaceChildren();
-    box.setAttribute("aria-label", "样本朝向构成：" +
-      items.map(d => d.name + " " + d.n + " 条，占 " + percent(d.n / total)).join("；"));
-
-    const strip = el("div", "strip");
-    strip.setAttribute("aria-hidden", "true");
-    items.forEach((d, i) => {
-      const seg = el("span", "strip-seg " + cls(i));
-      seg.style.flexGrow = d.n;
-      seg.title = d.name + "：" + d.n + " 条，占 " + percent(d.n / total);
-      strip.append(seg);
-    });
-
-    const table = el("table", "orient-table");
-    table.setAttribute("aria-hidden", "true");
-    const body = el("tbody");
-    items.forEach((d, i) => {
-      const tr = el("tr");
-      const name = el("td", "orient-name");
-      name.append(el("i", "swatch " + cls(i)), document.createTextNode(d.name));
-      tr.append(name, el("td", "num", nf.format(d.n) + " 条"), el("td", "num", percent(d.n / total)));
-      tr.title = d.name + "：" + d.n + " 条，占 " + percent(d.n / total);
-      body.append(tr);
-    });
-    table.append(body);
-    const sum = el("p", "chart-total", "共 " + nf.format(total) + " 条发布记录，" + items.length + " 种朝向标注");
-    sum.setAttribute("aria-hidden", "true");
-    box.append(sum, strip, table);
-  }
-
-  /* ---------- 图3 面积与总价散点（按容器实际宽度绘制） ---------- */
-  function renderScatter() {
-    const box = $("scatterChart");
-    const pts = filtered.filter(r => valid(r.area_sqm) && valid(r.total_price_wan));
-    box.replaceChildren();
-    if (!pts.length) { box.__w = 0; return empty(box); }
-
-    const width = Math.max(260, Math.round(box.clientWidth || 620));
-    box.__w = width;
-    const compact = width < 520;
-    const height = compact ? 320 : 390;
-    const xs = niceTicks(Math.max(...pts.map(r => r.area_sqm)), compact ? 4 : 6);
-    const ys = niceTicks(Math.max(...pts.map(r => r.total_price_wan)), 5);
-    const yLabelW = Math.max(...ys.ticks.map(t => nf.format(t).length)) * 7.6;
-    const m = { l: Math.round(yLabelW + 16), r: 14, t: 32, b: 50 };
-    const sx = v => m.l + v / xs.top * (width - m.l - m.r);
-    const sy = v => height - m.b - v / ys.top * (height - m.t - m.b);
-    const medX = median(pts, "area_sqm"), medY = median(pts, "total_price_wan");
-
-    const svg = svgEl("svg", {
-      width, height, viewBox: "0 0 " + width + " " + height, class: "scatter-svg", role: "img",
-      "aria-label": "建筑面积与挂牌总价散点图，共 " + pts.length + " 条记录；面积中位数 " + nf.format(medX) +
-        "㎡，总价中位数 " + nf.format(medY) + " 万元"
-    });
-    ys.ticks.forEach(t => {
-      svg.append(svgEl("line", { x1: m.l, x2: width - m.r, y1: sy(t), y2: sy(t), class: t === 0 ? "axis" : "grid" }));
-      svg.append(svgEl("text", { x: m.l - 8, y: sy(t) + 4, "text-anchor": "end", class: "tick" }, nf.format(t)));
-    });
-    xs.ticks.forEach(t => {
-      svg.append(svgEl("line", { x1: sx(t), x2: sx(t), y1: height - m.b, y2: height - m.b + 5, class: "axis" }));
-      svg.append(svgEl("text", { x: sx(t), y: height - m.b + 20, "text-anchor": "middle", class: "tick" }, nf.format(t)));
-    });
-    svg.append(svgEl("text", { x: m.l, y: 14, class: "axis-title" }, "挂牌总价（万元）"));
-    svg.append(svgEl("text", { x: width - m.r, y: height - 6, "text-anchor": "end", class: "axis-title" }, "建筑面积（㎡）"));
-
-    // 中位数参考线
-    svg.append(svgEl("line", { x1: sx(medX), x2: sx(medX), y1: m.t, y2: height - m.b, class: "guide" }));
-    svg.append(svgEl("line", { x1: m.l, x2: width - m.r, y1: sy(medY), y2: sy(medY), class: "guide" }));
-    const flip = sx(medX) > width * 0.68;
-    svg.append(svgEl("text", { x: sx(medX) + (flip ? -6 : 6), y: m.t + 12, "text-anchor": flip ? "end" : "start", class: "guide-label" }, "面积中位数 " + nf.format(medX) + "㎡"));
-    svg.append(svgEl("text", { x: width - m.r - 2, y: sy(medY) - 6, "text-anchor": "end", class: "guide-label" }, "总价中位数 " + nf.format(medY) + "万元"));
-
-    const radius = compact ? 2.4 : 2.9;
-    const coords = pts.map(r => [sx(r.area_sqm), sy(r.total_price_wan), r]);
-    const layer = svgEl("g", { class: "pts" });
-    coords.forEach(c => layer.append(svgEl("circle", { cx: c[0].toFixed(1), cy: c[1].toFixed(1), r: radius, class: "pt" })));
-    svg.append(layer);
-    const ring = svgEl("circle", { r: 6, class: "pt-ring" });
-    ring.style.display = "none";
-    svg.append(ring);
-
-    const tip = el("div", "tooltip");
-    tip.hidden = true;
-    const hide = () => { tip.hidden = true; ring.style.display = "none"; };
-    box.__hide = hide;
-    const show = ev => {
-      const rect = svg.getBoundingClientRect();
-      const px = (ev.clientX - rect.left) * (width / rect.width);
-      const py = (ev.clientY - rect.top) * (height / rect.height);
-      const reach = ev.pointerType === "touch" ? 22 : 12;
-      let best = null, bestD = reach * reach;
-      for (const c of coords) {
-        const dx = c[0] - px, dy = c[1] - py, d = dx * dx + dy * dy;
-        if (d <= bestD) { bestD = d; best = c; }
-      }
-      if (!best) return hide();
-      const r = best[2];
-      ring.setAttribute("cx", best[0]);
-      ring.setAttribute("cy", best[1]);
-      ring.style.display = "";
-      tip.replaceChildren(
-        el("strong", "", (r.community || "未标注小区") + "　" + r.__d),
-        el("span", "", fmt(r.area_sqm) + "㎡　" + fmt(r.total_price_wan) + "万元　" + fmt(r.unit_price_yuan) + "元/㎡")
-      );
-      tip.hidden = false;
-      const left = Math.min(Math.max(4, best[0] - tip.offsetWidth / 2), width - tip.offsetWidth - 4);
-      let top = best[1] - tip.offsetHeight - 12;
-      if (top < 2) top = best[1] + 14;
-      tip.style.left = left + "px";
-      tip.style.top = top + "px";
-    };
-    svg.addEventListener("pointermove", show);
-    svg.addEventListener("pointerdown", show);
-    svg.addEventListener("pointerleave", ev => { if (ev.pointerType !== "touch") hide(); });
-    box.append(svg, tip);
-  }
-
-  /* ---------- 图4 单价分布（按容器实际宽度绘制） ---------- */
-  function renderHistogram() {
-    const box = $("histogramChart");
-    const prices = filtered.map(r => r.unit_price_yuan).filter(valid);
-    box.replaceChildren();
-    if (!prices.length) { box.__w = 0; return empty(box); }
-
-    const edges = [0, 5000, 10000, 15000, 20000, 25000];
-    const bins = edges.map((low, i) => ({ low, high: i < edges.length - 1 ? edges[i + 1] : Infinity, n: 0 }));
-    prices.forEach(v => {
-      for (let i = bins.length - 1; i >= 0; i--) if (v >= bins[i].low) { bins[i].n++; break; }
-    });
-    const total = prices.length;
-    const width = Math.max(260, Math.round(box.clientWidth || 360));
-    box.__w = width;
-    const height = 330;
-    const ys = niceTicks(Math.max(...bins.map(b => b.n)), 4);
-    const yLabelW = Math.max(...ys.ticks.map(t => nf.format(t).length)) * 7.6;
-    const m = { l: Math.round(yLabelW + 14), r: 6, t: 32, b: 62 };
-    const innerW = width - m.l - m.r;
-    const barW = innerW / bins.length;
-    const sy = v => height - m.b - v / ys.top * (height - m.t - m.b);
-
-    const svg = svgEl("svg", {
-      width, height, viewBox: "0 0 " + width + " " + height, class: "hist-svg", role: "img",
-      "aria-label": "挂牌单价分布（元/㎡）：" + bins.map(b =>
-        (b.high === Infinity ? "25,000 及以上" : b.low === 0 ? "5,000 以下" : nf.format(b.low) + " 至 " + nf.format(b.high)) + " " + b.n + " 条").join("；")
-    });
-    ys.ticks.forEach(t => {
-      svg.append(svgEl("line", { x1: m.l, x2: width - m.r, y1: sy(t), y2: sy(t), class: t === 0 ? "axis" : "grid" }));
-      svg.append(svgEl("text", { x: m.l - 8, y: sy(t) + 4, "text-anchor": "end", class: "tick" }, nf.format(t)));
-    });
-    svg.append(svgEl("text", { x: m.l, y: 14, class: "axis-title" }, "样本数（条）"));
-    bins.forEach((b, i) => {
-      const x = m.l + i * barW + 2, w = Math.max(1, barW - 4);
-      const label = b.high === Infinity ? "25,000 及以上" : (b.low === 0 ? "5,000 以下" : nf.format(b.low) + "–" + nf.format(b.high));
-      const rect = svgEl("rect", { x, y: sy(b.n), width: w, height: Math.max(0, height - m.b - sy(b.n)), class: "bar" });
-      rect.append(svgEl("title", {}, label + " 元/㎡：" + b.n + " 条，占 " + percent(b.n / total)));
-      svg.append(rect);
-      svg.append(svgEl("text", { x: x + w / 2, y: sy(b.n) - 6, "text-anchor": "middle", class: "bar-count" }, nf.format(b.n)));
-    });
-    edges.forEach((e, i) => {
-      if (i === 0) return;
-      svg.append(svgEl("text", { x: m.l + i * barW, y: height - m.b + 19, "text-anchor": "middle", class: "tick" }, nf.format(e)));
-    });
-    svg.append(svgEl("text", { x: m.l, y: height - m.b + 19, "text-anchor": "start", class: "tick" }, "0"));
-    svg.append(svgEl("text", { x: m.l, y: height - 20, class: "axis-title" }, "挂牌单价（元/㎡）"));
-    svg.append(svgEl("text", { x: m.l, y: height - 4, class: "axis-note" }, "最右一组为 25,000 及以上"));
-    box.append(svg);
-  }
-
-  /* ---------- 图5 区域 × 朝向热力表 ---------- */
-  const HEAT_LOW = [234, 242, 245], HEAT_HIGH = [16, 66, 88];
-  const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
-  const luminance = rgb => {
-    const [r, g, b] = rgb.map(v => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); });
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  };
-
-  function renderHeatmap() {
-    const box = $("heatmapChart");
-    if (!filtered.length) { setText("heatMin", "—"); setText("heatMax", "—"); return empty(box); }
-    const districts = [...groupBy(filtered, r => r.__d)].sort((a, b) => a[0].localeCompare(b[0], "zh-CN"));
-    const orientations = [...groupBy(filtered, r => r.__o)].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], "zh-CN"));
-    const cellMap = groupBy(filtered, r => r.__d + "\u0000" + r.__o);
-    const medians = [...cellMap.values()].map(list => median(list, "unit_price_yuan")).filter(valid);
-    if (!medians.length) { setText("heatMin", "—"); setText("heatMax", "—"); return empty(box); }
-    const min = Math.min(...medians), max = Math.max(...medians);
-    setText("heatMin", nf.format(min));
-    setText("heatMax", nf.format(max));
-
-    const table = el("table", "heatmap");
-    table.style.setProperty("--cols", orientations.length);
-    table.append(el("caption", "sr-only", "各区域与朝向的挂牌单价中位数（元/㎡），括号内为样本量，“—”表示无样本"));
-    const head = el("thead"), hr = el("tr");
-    const corner = el("th", "corner", "区域 \\ 朝向");
-    corner.scope = "col";
-    hr.append(corner);
-    orientations.forEach(([name, list]) => {
-      const th = el("th", "col-head");
-      th.scope = "col";
-      th.append(el("span", "", name), el("small", "", "n=" + nf.format(list.length)));
-      hr.append(th);
-    });
-    head.append(hr);
-    table.append(head);
-
-    const body = el("tbody");
-    districts.forEach(([district, dList]) => {
-      const tr = el("tr");
-      const th = el("th", "row-head");
-      th.scope = "row";
-      th.append(el("span", "", district), el("small", "", "n=" + nf.format(dList.length)));
-      tr.append(th);
-      orientations.forEach(([orientation]) => {
-        const list = cellMap.get(district + "\u0000" + orientation) || [];
-        const value = median(list, "unit_price_yuan");
-        const td = el("td");
-        if (valid(value)) {
-          const ratio = max === min ? 0.5 : (value - min) / (max - min);
-          const rgb = mix(HEAT_LOW, HEAT_HIGH, ratio);
-          td.style.background = "rgb(" + rgb.join(",") + ")";
-          const lum = luminance(rgb);
-          td.style.color = (1.05 / (lum + 0.05)) >= ((lum + 0.05) / 0.067) ? "#ffffff" : "#16252d";
-          if (list.length < LOW_N) td.className = "low-n";
-          td.append(el("span", "cell-value", nf.format(value)), el("small", "cell-n", "(" + list.length + ")"));
-          td.title = district + " · " + orientation + " · " + list.length + " 条 · 挂牌单价中位数 " + nf.format(value) + " 元/㎡";
-        } else {
-          td.className = "na";
-          const dash = el("span", "", "—");
-          dash.setAttribute("role", "img");
-          dash.setAttribute("aria-label", "无样本");
-          td.append(dash);
-          td.title = district + " · " + orientation + "：无样本";
-        }
-        tr.append(td);
-      });
-      body.append(tr);
-    });
-    table.append(body);
-    box.replaceChildren(table);
-  }
-
-  /* ---------- 样本明细表 ---------- */
-  function sourceUrl(value) {
-    try {
-      const url = new URL(value);
-      return url.protocol === "https:" && url.hostname === "m.fang.com" && /^\/esf\/wuhan\/\d+_\d+\.html$/.test(url.pathname) ? url.href : null;
-    } catch { return null; }
-  }
-  function cell(cls, text, label, unit) {
-    const td = el("td", cls, text);
-    td.setAttribute("role", "cell");
-    if (label) td.dataset.label = label;
-    if (unit) td.dataset.unit = unit;
-    return td;
-  }
-  function pageCount() { return Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)); }
-
-  function renderTable() {
-    const body = $("tableBody");
-    body.replaceChildren();
-    const pages = pageCount();
-    state.page = Math.min(Math.max(1, state.page), pages);
-    $("tableCount").textContent = nf.format(filtered.length);
-
-    if (!filtered.length) {
-      const tr = el("tr");
-      tr.setAttribute("role", "row");
-      const td = el("td", "empty-row", "当前筛选条件下暂无样本，请调整筛选。");
-      td.colSpan = 8;
-      td.setAttribute("role", "cell");
-      tr.append(td);
-      body.append(tr);
-    }
-    const start = (state.page - 1) * PAGE_SIZE;
-    filtered.slice(start, start + PAGE_SIZE).forEach(item => {
-      const tr = el("tr");
-      tr.setAttribute("role", "row");
-      const name = cell("c-name");
-      const community = item.community || "未标注小区";
-      const title = el("div", "sample-title", community);
-      title.title = community;
-      const subtitle = el("div", "sample-subtitle", item.title || "");
-      subtitle.title = item.title || "";
-      name.append(title, subtitle);
-      tr.append(
-        name,
-        cell("c-district", item.__d, "区域"),
-        cell("c-layout", item.layout || "—", "户型"),
-        cell("num c-area", fmt(item.area_sqm), "建筑面积", "㎡"),
-        cell("num c-total", fmt(item.total_price_wan), "挂牌总价", "万元"),
-        cell("num c-unit", fmt(item.unit_price_yuan), "挂牌单价", "元/㎡"),
-        cell("c-orient", item.__o, "朝向")
-      );
-      const td = cell("c-source");
-      const href = sourceUrl(item.url);
-      if (href) {
-        const a = el("a", "source-link", "查看原页面");
-        a.href = href;
-        a.target = "_blank";
-        a.rel = "noopener noreferrer";
-        a.setAttribute("aria-label", "查看" + community + "的公开来源页面（新窗口打开）");
-        td.append(a);
-      } else td.textContent = "—";
-      tr.append(td);
-      body.append(tr);
-    });
-
-    $("pageSummary").textContent = filtered.length
-      ? "第 " + nf.format(start + 1) + "–" + nf.format(Math.min(start + PAGE_SIZE, filtered.length)) + " 条，共 " + nf.format(filtered.length) + " 条" + previewSuffix()
-      : "共 0 条样本";
-    $("pageNumber").textContent = "第 " + state.page + " / " + pages + " 页";
-    $("prevPage").disabled = $("firstPage").disabled = state.page === 1;
-    $("nextPage").disabled = $("lastPage").disabled = state.page === pages;
-
-    document.querySelectorAll("th[data-sort-key]").forEach(th => {
-      const [key, order] = state.sort.split(":");
-      th.setAttribute("aria-sort", key === th.dataset.sortKey ? (order === "asc" ? "ascending" : "descending") : "none");
-    });
-  }
-
-  /* ---------- 清洗口径与区域台账（来自完整数据集的元数据） ---------- */
-  function renderQuality() {
-    const q = quality;
-    const removed = q.signature_duplicates_removed;
-    $("duplicateNote").textContent = "同一来源、采集阶段和观察日内，按区域、小区、户型、面积、朝向和总价匹配记录，每组保留最近采集的一条。";
-
-    const input = q.input_records;
-    if (typeof input === "number" && input > 0 && typeof q.cleaned_listing_records === "number" && typeof removed === "number") {
-      const keptPct = q.cleaned_listing_records / input * 100, removedPct = removed / input * 100;
-      $("flowKept").style.width = keptPct + "%";
-      $("flowRemoved").style.width = Math.max(removedPct, 0.6) + "%";
-      setText("flowRawText", nf.format(input));
-      setText("flowKeptText", nf.format(q.cleaned_listing_records));
-      setText("flowRemovedText", nf.format(removed));
-      $("flowFigure").setAttribute("aria-label", "原始 " + nf.format(input) + " 条记录中，保留 " + nf.format(q.cleaned_listing_records) + " 条，同条件重复剔除 " + nf.format(removed) + " 条");
-    } else {
-      $("flowFigure").hidden = true;
-    }
-  }
-
-  /* ---------- 主渲染 ---------- */
-  function sortRows(list) {
-    if (state.sort === "default") return list;
-    const [key, order] = state.sort.split(":");
-    const dir = order === "asc" ? 1 : -1;
-    return list.slice().sort((a, b) => {
-      const av = a[key], bv = b[key], aOk = valid(av), bOk = valid(bv);
-      if (aOk && bOk) return (av - bv) * dir || a.__i - b.__i;
-      if (aOk) return -1;
-      if (bOk) return 1;
-      return a.__i - b.__i;
-    });
-  }
-  const safely = fn => { try { fn(); } catch (error) { if (window.console) console.error(error); } };
-
-  function render() {
-    const query = state.query.trim().toLocaleLowerCase();
-    filtered = sortRows(rows.filter(r =>
-      (!state.district || r.__d === state.district) &&
-      (!state.orientation || r.__o === state.orientation) &&
-      (!query || ((r.community || "") + " " + (r.title || "")).toLocaleLowerCase().includes(query))));
-
-    setText("countMetric", nf.format(filtered.length));
-    setText("unitMetric", fmt(median(filtered, "unit_price_yuan")));
-    setText("totalMetric", fmt(median(filtered, "total_price_wan")));
-    setText("areaMetric", fmt(median(filtered, "area_sqm")));
-    const labels = [state.district, state.orientation, state.query.trim() && "关键词：" + state.query.trim()].filter(Boolean);
-    $("filterSummary").textContent = (labels.length ? "当前筛选：" + labels.join("，") : "未设筛选，显示全部样本") +
-      "；共 " + nf.format(filtered.length) + " 条发布记录" + previewSuffix();
-    $("exportButton").disabled = !filtered.length;
-
-    safely(renderDistrict);
-    safely(renderOrientation);
-    safely(renderScatter);
-    safely(renderHistogram);
-    safely(renderHeatmap);
-    safely(renderTable);
-  }
-
-  /* ---------- CSV 导出 ---------- */
-  function csvCell(value) {
-    let text = String(value ?? "");
-    if (/^[=+\-@\t\r]/.test(text)) text = "'" + text;
-    return '"' + text.replaceAll('"', '""') + '"';
-  }
-  function download() {
-    const columns = [["community", "小区"], ["district", "区域"], ["layout", "户型"], ["area_sqm", "建筑面积_平方米"],
-      ["total_price_wan", "挂牌总价_万元"], ["unit_price_yuan", "挂牌单价_元每平方米"], ["orientation", "朝向"], ["url", "公开来源"]];
-    const lines = [columns.map(c => csvCell(c[1])).join(",")];
-    filtered.forEach(row => lines.push(columns.map(([key]) => csvCell(row[key])).join(",")));
-    const url = URL.createObjectURL(new Blob(["\ufeff" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" }));
-    const link = el("a");
-    link.href = url;
-    link.download = "武汉二手房样本_" + (preview ? "预览子集_" : "") + (data.date || "") + ".csv";
-    document.body.append(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    const toast = $("toast");
-    toast.textContent = "已导出 " + filtered.length + " 条筛选样本" + previewSuffix();
-    toast.classList.add("visible");
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toast.classList.remove("visible"), 2800);
-  }
-
-  /* ---------- 概览与预览标注 ---------- */
-  function formatDate(value) {
-    const match = typeof value === "string" && value.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-    return match ? match[1] + "年" + Number(match[2]) + "月" + Number(match[3]) + "日（北京时间）" : (value ? value + "（北京时间）" : "—");
-  }
-  function setupOverview() {
-    const regionNames = Object.keys(data.region_counts || data.raw_region_counts || {});
-    const rawRegionCounts = Object.values(data.raw_region_counts || {});
-    const quota = rawRegionCounts.length && rawRegionCounts.every(n => n === rawRegionCounts[0]) ? "，每区 " + rawRegionCounts[0] + " 条" : "";
-    const analysisCount = preview && typeof quality.cleaned_listing_records === "number" ? quality.cleaned_listing_records : rows.length;
-    setText("observationDate", formatDate(data.date));
-    if (data.source) setText("sourceName", data.source);
-    setText("regionCount", regionNames.length ? String(regionNames.length) : "—");
-    if (regionNames.length) {
-      setText("scopeText", "原始样本覆盖 " + regionNames.length + " 个平台区域" + quota + "；规则去重后用于分析的记录为 " + nf.format(analysisCount) + " 条。");
-    }
-  }
-  function setupPreview() {
-    if (!preview) return;
-    document.body.dataset.preview = "true";
-    const shown = preview.rows_in_this_file ?? rows.length;
-    const full = preview.full_analysis_records ?? quality.cleaned_listing_records;
-    setText("previewText", "　当前只加载了示例子集：" + nf.format(shown) + " 条记录" +
-      (typeof full === "number" ? "（完整分析样本为 " + nf.format(full) + " 条）" : "") +
-      "，按区域、朝向和数值极端值挑选，不是随机样本。“从样本看挂牌特征”和“样本明细”中的统计、图表与明细仅用于检查版式和交互，不代表研究结论；" +
-      "“研究概览”和“清洗与口径”中的全量数字来自完整数据集的元数据。");
-    $("previewBanner").hidden = false;
-    document.querySelectorAll(".preview-tag").forEach(tag => { tag.hidden = false; });
-    document.title = "【示例子集预览】" + document.title;
-  }
-
-  /* ---------- 事件 ---------- */
-  function buildFilters() {
-    const dCount = groupBy(rows, r => r.__d), oCount = groupBy(rows, r => r.__o);
-    [...dCount.keys()].sort((a, b) => a.localeCompare(b, "zh-CN")).forEach(v => $("districtFilter").append(new Option(v, v)));
-    [...oCount].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], "zh-CN")).forEach(([v]) => $("orientationFilter").append(new Option(v, v)));
-    $("districtFilter").addEventListener("change", e => { state.district = e.target.value; state.page = 1; render(); });
-    $("orientationFilter").addEventListener("change", e => { state.orientation = e.target.value; state.page = 1; render(); });
-    let searchTimer;
-    $("searchInput").addEventListener("input", e => {
-      clearTimeout(searchTimer);
-      searchTimer = setTimeout(() => { state.query = e.target.value; state.page = 1; render(); }, 140);
-    });
-    $("filters").addEventListener("submit", e => e.preventDefault());
-    $("filters").addEventListener("reset", () => {
-      clearTimeout(searchTimer);
-      Object.assign(state, { district: "", orientation: "", query: "", page: 1 });
-      setTimeout(render, 0);
-    });
-  }
-  function setSort(value) {
-    state.sort = value;
-    $("sortSelect").value = value;
-    state.page = 1;
-    render();
-  }
-  function wireTable() {
-    $("sortSelect").addEventListener("change", e => setSort(e.target.value));
-    document.querySelectorAll(".sort-btn").forEach(btn => btn.addEventListener("click", () => {
-      const key = btn.dataset.key, [current, order] = state.sort.split(":");
-      setSort(current !== key ? key + ":asc" : order === "asc" ? key + ":desc" : "default");
-    }));
-    $("firstPage").addEventListener("click", () => { state.page = 1; renderTable(); });
-    $("prevPage").addEventListener("click", () => { state.page--; renderTable(); });
-    $("nextPage").addEventListener("click", () => { state.page++; renderTable(); });
-    $("lastPage").addEventListener("click", () => { state.page = pageCount(); renderTable(); });
-    $("exportButton").addEventListener("click", download);
-  }
-  function wireChrome() {
-    const links = [...document.querySelectorAll("#siteNav a")];
-    const targets = links.map(a => document.getElementById(a.hash.slice(1))).filter(Boolean);
-    let ticking = false;
-    const update = () => {
-      ticking = false;
-      let current = targets[0];
-      targets.forEach(t => { if (t.getBoundingClientRect().top <= 140) current = t; });
-      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4) current = targets[targets.length - 1];
-      links.forEach(a => {
-        const on = current && a.hash === "#" + current.id;
-        a.classList.toggle("active", !!on);
-        if (on) a.setAttribute("aria-current", "true"); else a.removeAttribute("aria-current");
-      });
-    };
-    window.addEventListener("scroll", () => { if (!ticking) { ticking = true; requestAnimationFrame(update); } }, { passive: true });
-    update();
-
-    document.addEventListener("pointerdown", e => {
-      const box = $("scatterChart");
-      if (box.__hide && !box.contains(e.target)) box.__hide();
-    });
-    // 图3、图4按容器像素宽度绘制，宽度变化时重绘，保证手机上文字仍可读。
-    if ("ResizeObserver" in window) {
-      let frame;
-      const observer = new ResizeObserver(() => {
-        cancelAnimationFrame(frame);
-        frame = requestAnimationFrame(() => {
-          const s = $("scatterChart"), h = $("histogramChart");
-          if (s.__w && Math.abs(s.clientWidth - s.__w) >= 1) safely(renderScatter);
-          if (h.__w && Math.abs(h.clientWidth - h.__w) >= 1) safely(renderHistogram);
-        });
-      });
-      observer.observe($("scatterChart"));
-      observer.observe($("histogramChart"));
-    }
-  }
-
-  setupOverview();
-  setupPreview();
-  renderQuality();
-  buildFilters();
-  wireTable();
-  wireChrome();
-  render();
+'use strict';
+const $=id=>document.getElementById(id), NS='http://www.w3.org/2000/svg';
+const data=window.DONGHU_DATA||{records:[]}, raw=Array.isArray(data.records)?data.records:[];
+const COLORS=['#48d4c3','#6baafa','#d2a0ed','#ffbf70','#849bb2'];
+const finite=x=>x!==null&&x!==''&&Number.isFinite(Number(x));
+const num=x=>finite(x)?Number(x):null;
+const median=values=>{const a=values.filter(finite).map(Number).sort((a,b)=>a-b);return a.length?(a[(a.length-1)>>1]+a[a.length>>1])/2:null;};
+const fmt=(x,d=0)=>x===null||x===undefined?'—':Number(x).toLocaleString('zh-CN',{maximumFractionDigits:d});
+const label=x=>typeof x==='string'&&x.trim()?x.trim():'未标注';
+const room=r=>{const v=Number.isInteger(r.room_count)?r.room_count:Number((r.layout||'').match(/(\d+)室/)?.[1]);return v>0?Math.min(4,v):null;};
+const roomName=n=>({'1':'一室','2':'两室','3':'三室','4':'四室及以上'})[n]||'未标注';
+const communityKey=r=>String(r.community_key||r.community_id||r.community||'未标注');
+const rows=raw.map(r=>({...r,__region:label(r.subdistrict),__room:room(r)}));
+let filtered=rows, mode='price', page=0, mapRender=0;
+const node=(tag,attrs={},text)=>{const n=document.createElementNS(NS,tag);Object.entries(attrs).forEach(([k,v])=>n.setAttribute(k,v));if(text!==undefined)n.textContent=text;return n;};
+const html=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;};
+function chart(id,w,h){const box=$(id);box.replaceChildren();const s=node('svg',{viewBox:'0 0 '+w+' '+h,preserveAspectRatio:'xMidYMid meet'});box.append(s);return s;}
+function empty(id,message='当前筛选暂无样本'){const box=$(id);box.replaceChildren(html('div','empty',message));}
+function group(list,key){const groups=new Map();for(const r of list){const k=key(r);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(r);}return [...groups];}
+function tip(el,text){el.append(node('title',{},text));return el;}
+function line(s,x1,y1,x2,y2,stroke='#30465c',extra={}){s.append(node('line',{x1,y1,x2,y2,stroke,...extra}));}
+function regression(list){const a=list.filter(r=>finite(r.area_sqm)&&finite(r.total_price_wan));const n=a.length;if(n<2)return null;const mx=a.reduce((v,r)=>v+Number(r.area_sqm),0)/n,my=a.reduce((v,r)=>v+Number(r.total_price_wan),0)/n;const xx=a.reduce((v,r)=>v+(r.area_sqm-mx)**2,0);if(!xx)return null;const slope=a.reduce((v,r)=>v+(r.area_sqm-mx)*(r.total_price_wan-my),0)/xx,intercept=my-slope*mx;const ss=a.reduce((v,r)=>v+(r.total_price_wan-my)**2,0),se=a.reduce((v,r)=>v+(r.total_price_wan-intercept-slope*r.area_sqm)**2,0);return {n,slope,intercept,r_squared:ss?1-se/ss:null};}
+function bars(id,groups,kind='count',twoColumns=false){
+ if(!groups.length)return empty(id);
+ const w=$(id).clientWidth,h=$(id).clientHeight,s=chart(id,w,h);
+ twoColumns=twoColumns&&w>620;
+ const cols=twoColumns?2:1,per=Math.ceil(groups.length/cols),gap=twoColumns?36:0,cw=(w-gap)/cols;
+ const price=kind==='price',labelWidth=id==='communityChart'?Math.min(180,cw*.39):price?107:52;
+ const valueWidth=price?143:52,barWidth=Math.max(20,cw-labelWidth-valueWidth),max=Math.max(...groups.map(g=>g.value),1);
+ const rowHeight=Math.min(42,h/per),offset=(h-rowHeight*per)/2;
+ groups.forEach((g,i)=>{
+  const col=Math.floor(i/per),row=i%per,x=col*(cw+gap),y=offset+row*rowHeight+rowHeight/2;
+  const maxChars=Math.floor((labelWidth-10)/13),name=g.name.length>maxChars?g.name.slice(0,maxChars-1)+'…':g.name;
+  s.append(tip(node('text',{x,y:y+4},name),g.name));
+  s.append(node('rect',{x:x+labelWidth,y:y-5,width:barWidth,height:10,rx:3,fill:'#1d3645'}));
+  const bar=node('rect',{x:x+labelWidth,y:y-5,width:Math.max(1,g.value/max*barWidth),height:10,rx:3,fill:price?'#71b3ee':'#53cbb8'});
+  tip(bar,g.name+'：'+fmt(g.value)+(price?' 元/㎡':' 条')+(g.n?'；样本 '+g.n+' 条':''));s.append(bar);
+  s.append(node('text',{x:x+cw-(price?76:1),y:y+4,'text-anchor':'end',class:'chart-value'},fmt(g.value)));
+  if(price)s.append(node('text',{x:x+cw-1,y:y+4,'text-anchor':'end',class:'sample-count'},'n='+g.n));
+ });
+}
+function drawRooms(){
+ const groups=group(filtered,r=>r.__room).sort((a,b)=>(a[0]??99)-(b[0]??99));if(!groups.length)return empty('roomChart');
+ const w=$('roomChart').clientWidth,h=$('roomChart').clientHeight,s=chart('roomChart',w,h),cx=w*.25,cy=h/2,r=Math.min(w*.18,h*.36),total=filtered.length,stroke=Math.max(17,r*.26);
+ let start=-Math.PI/2;
+ groups.forEach(([k,a],i)=>{
+  const end=start+a.length/total*2*Math.PI,large=end-start>Math.PI?1:0;let part;
+  if(groups.length===1)part=node('circle',{cx,cy,r,fill:'none',stroke:COLORS[i],'stroke-width':stroke});
+  else{const p1=[cx+r*Math.cos(start),cy+r*Math.sin(start)],p2=[cx+r*Math.cos(end),cy+r*Math.sin(end)];part=node('path',{d:'M '+p1.join(' ')+' A '+r+' '+r+' 0 '+large+' 1 '+p2.join(' '),fill:'none',stroke:COLORS[i%COLORS.length],'stroke-width':stroke});}
+  tip(part,roomName(k)+'：'+a.length+' 条（'+fmt(a.length/total*100,1)+'%）');s.append(part);
+  const y=cy-(groups.length-1)*19+i*38,lx=w*.52;
+  s.append(node('rect',{x:lx,y:y-7,width:8,height:8,rx:2,fill:COLORS[i%COLORS.length]}),node('text',{x:lx+16,y},roomName(k)),node('text',{x:w-2,y,'text-anchor':'end',class:'chart-value'},fmt(a.length/total*100,1)+'%'));
+  start=end;
+ });
+ s.append(node('text',{x:cx,y:cy,'text-anchor':'middle',style:'font-size:28px;fill:#edf4fa'},fmt(total)),node('text',{x:cx,y:cy+25,'text-anchor':'middle'},'样本房源'));
+}
+function drawScatter(){const list=filtered.filter(r=>finite(r.area_sqm)&&finite(r.total_price_wan));const fit=regression(list);$('regressionLabel').textContent=fit&&fit.r_squared!==null?'样本内 R² '+fit.r_squared.toFixed(3):'';if(!list.length)return empty('scatterChart');const w=$('scatterChart').clientWidth,h=$('scatterChart').clientHeight,s=chart('scatterChart',w,h),left=55,right=15,top=24,bottom=44,xmax=Math.max(...list.map(r=>+r.area_sqm))*1.08,ymax=Math.max(...list.map(r=>+r.total_price_wan))*1.1;const x=v=>left+v/xmax*(w-left-right),y=v=>h-bottom-v/ymax*(h-top-bottom);for(let i=0;i<=4;i++){const xx=xmax*i/4,yy=ymax*i/4;line(s,left,y(yy),w-right,y(yy),'#263b50');s.append(node('text',{x:left-9,y:y(yy)+4,'text-anchor':'end'},fmt(yy)));s.append(node('text',{x:x(xx),y:h-bottom+19,'text-anchor':'middle'},fmt(xx)));}line(s,left,top,left,h-bottom);line(s,left,h-bottom,w-right,h-bottom);for(const r of list){const dot=node('circle',{cx:x(r.area_sqm),cy:y(r.total_price_wan),r:2.4,fill:'#48d4c3',opacity:.38});tip(dot,label(r.community)+' · '+label(r.layout)+'\n'+fmt(r.area_sqm,1)+' ㎡ / '+fmt(r.total_price_wan,1)+' 万元');s.append(dot);}if(fit){let lo=0,hi=xmax;if(fit.slope!==0){const a=(0-fit.intercept)/fit.slope,b=(ymax-fit.intercept)/fit.slope;lo=Math.max(0,Math.min(a,b));hi=Math.min(xmax,Math.max(a,b));}if(lo<=hi&&fit.intercept+fit.slope*lo>=-.001&&fit.intercept+fit.slope*hi<=ymax+.001)line(s,x(lo),y(fit.intercept+fit.slope*lo),x(hi),y(fit.intercept+fit.slope*hi),'#ffbf70',{'stroke-width':2});}s.append(node('text',{x:w-right,y:h-5,'text-anchor':'end'},'面积 / ㎡'));s.append(node('text',{x:left,y:12},'总价 / 万元'));}
+// Source coordinates are preserved. The following standard display conversion is approximate.
+function wgs84(lng,lat,system){const type=String(system||'').toLowerCase().replace(/[-_]/g,'');if(type==='bd09'||type==='bd09ll'){const x=lng-.0065,y=lat-.006,z=Math.sqrt(x*x+y*y)-.00002*Math.sin(y*Math.PI*3000/180),theta=Math.atan2(y,x)-.000003*Math.cos(x*Math.PI*3000/180);lng=z*Math.cos(theta);lat=z*Math.sin(theta);}else if(type==='wgs84'||type==='epsg4326')return [lng,lat];else if(type!=='gcj02')return null;
+ const a=6378245,ee=.00669342162296594323,x=lng-105,y=lat-35;let dlat=-100+2*x+3*y+.2*y*y+.1*x*y+.2*Math.sqrt(Math.abs(x)),dlng=300+x+2*y+.1*x*x+.1*x*y+.1*Math.sqrt(Math.abs(x));dlat+=(20*Math.sin(6*x*Math.PI)+20*Math.sin(2*x*Math.PI))*2/3+(20*Math.sin(y*Math.PI)+40*Math.sin(y/3*Math.PI))*2/3+(160*Math.sin(y/12*Math.PI)+320*Math.sin(y*Math.PI/30))*2/3;dlng+=(20*Math.sin(6*x*Math.PI)+20*Math.sin(2*x*Math.PI))*2/3+(20*Math.sin(x*Math.PI)+40*Math.sin(x/3*Math.PI))*2/3+(150*Math.sin(x/12*Math.PI)+300*Math.sin(x/30*Math.PI))*2/3;const rad=lat/180*Math.PI,magic=1-ee*Math.sin(rad)**2,sqrt=Math.sqrt(magic);return [lng-dlng*180/(a/sqrt*Math.cos(rad)*Math.PI),lat-dlat*180/(a*(1-ee)/(magic*sqrt)*Math.PI)];}
+function located(list){return list.map(r=>{if(!finite(r.longitude)||!finite(r.latitude))return null;const p=wgs84(+r.longitude,+r.latitude,r.coordinate_system);return p&&p[0]>113.5&&p[0]<115&&p[1]>29.5&&p[1]<31.5?{row:r,lng:p[0],lat:p[1]}:null;}).filter(Boolean);}
+const mapAll=located(rows), STEP=.005;
+function mercator(lng,lat,z){const size=256*2**z,s=Math.sin(lat*Math.PI/180);return [(lng+180)/360*size,(.5-Math.log((1+s)/(1-s))/(4*Math.PI))*size];}
+function ramp(t){const a=mode==='price'?[65,137,212]:[38,111,146],b=mode==='price'?[255,185,88]:[96,243,193];return 'rgb('+a.map((v,i)=>Math.round(v+(b[i]-v)*t)).join(',')+')';}
+function drawMap(){const points=located(filtered),generation=++mapRender;$('mapCoverage').textContent='已定位 '+fmt(points.length)+' / '+fmt(filtered.length)+' 条';$('mapLegend').replaceChildren();if(!points.length){empty('mapChart',filtered.length?'当前样本暂无已核验坐标':'当前筛选暂无样本');$('mapStatus').textContent=filtered.length?'其余图表按可用字段展示':'等待房源数据';return;}
+ const w=Math.max(280,$('mapChart').clientWidth),h=Math.max(180,$('mapChart').clientHeight),s=chart('mapChart',w,h);const all=mapAll.length?mapAll:points,minLng=Math.min(...all.map(p=>p.lng))-.012,maxLng=Math.max(...all.map(p=>p.lng))+.012,minLat=Math.min(...all.map(p=>p.lat))-.01,maxLat=Math.max(...all.map(p=>p.lat))+.01;let z=14;while(z>7){const a=mercator(minLng,maxLat,z),b=mercator(maxLng,minLat,z);if(b[0]-a[0]<w&&b[1]-a[1]<h)break;z--;}
+ const upper=mercator(minLng,maxLat,z),lower=mercator(maxLng,minLat,z),scale=Math.min(w/(lower[0]-upper[0]),h/(lower[1]-upper[1])),mid=mercator((minLng+maxLng)/2,(minLat+maxLat)/2,z).map(v=>v*scale),origin=[mid[0]-w/2,mid[1]-h/2],xy=(lng,lat)=>{const p=mercator(lng,lat,z);return [p[0]*scale-origin[0],p[1]*scale-origin[1]];};s.append(node('rect',{width:w,height:h,fill:'#0b1928'}));for(let x=0;x<w;x+=64)line(s,x,0,x,h,'#162b3e');for(let y=0;y<h;y+=64)line(s,0,y,w,y,'#162b3e');let loaded=0,failed=0;const tiles=node('g',{opacity:.28,class:'basemap'});s.append(tiles);const tileSize=256*scale,xmin=Math.floor(origin[0]/tileSize),xmax=Math.floor((origin[0]+w)/tileSize),ymin=Math.floor(origin[1]/tileSize),ymax=Math.floor((origin[1]+h)/tileSize);$('mapStatus').textContent='底图加载中';for(let tx=xmin;tx<=xmax;tx++)for(let ty=ymin;ty<=ymax;ty++){const img=node('image',{x:tx*tileSize-origin[0],y:ty*tileSize-origin[1],width:tileSize,height:tileSize,href:'https://tile.openstreetmap.org/'+z+'/'+tx+'/'+ty+'.png'});img.addEventListener('load',()=>{loaded++;if(generation===mapRender)$('mapStatus').textContent='实际坐标 · 在线底图';});img.addEventListener('error',()=>{img.remove();failed++;if(generation===mapRender&&!loaded)$('mapStatus').textContent='底图未加载 · 显示实际坐标网格';});tiles.append(img);}
+ const groups=group(points,p=>Math.floor(p.lng/STEP)+','+Math.floor(p.lat/STEP)),values=groups.map(([k,a])=>mode==='count'?a.length:median(a.map(p=>p.row.unit_price_yuan))).filter(finite),low=Math.min(...values),high=Math.max(...values);for(const [key,a]of groups){const value=mode==='count'?a.length:median(a.map(p=>p.row.unit_price_yuan));if(value===null)continue;const [gx,gy]=key.split(',').map(Number),nw=xy(gx*STEP,(gy+1)*STEP),se=xy((gx+1)*STEP,gy*STEP);const box=node('rect',{x:nw[0],y:nw[1],width:Math.max(3,se[0]-nw[0]),height:Math.max(3,se[1]-nw[1]),fill:ramp(high===low?.65:(value-low)/(high-low)),opacity:.96,stroke:'#0b1b2b','stroke-width':.6});const names=[...new Set(a.map(p=>label(p.row.community)))];tip(box,names.slice(0,8).join('、')+(names.length>8?'等':'')+'\n样本 '+a.length+' 条\n'+(mode==='price'?'单价中位数 '+fmt(value)+' 元/㎡':'采集数量 '+fmt(value)+' 条'));s.append(box);}
+ const communities=group(points,p=>communityKey(p.row)).sort((a,b)=>b[1].length-a[1].length);const placed=[];for(const [,a]of communities.slice(0,12)){const p=a[0],pos=xy(p.lng,p.lat),title=label(p.row.community),name=title.length>11?title.slice(0,10)+'…':title,tw=name.length*12;const dot=node('circle',{cx:pos[0],cy:pos[1],r:2.5,fill:'#f0f7ff'});tip(dot,title+' · '+a.length+' 条');s.append(dot);let best=null;for(const [dx,dy]of [[6,-7],[6,18],[-tw-6,-7],[-tw-6,18],[6,-24],[-tw-6,-24]]){const box={x:pos[0]+dx,y:pos[1]+dy-12,w:tw,h:16};if(box.x<4||box.y<25||box.x+box.w>w-4||box.y+box.h>h-4)continue;if(placed.some(b=>box.x<b.x+b.w+5&&box.x+box.w+5>b.x&&box.y<b.y+b.h+3&&box.y+box.h+3>b.y))continue;best=box;break;}if(best){placed.push(best);s.append(node('text',{x:best.x,y:best.y+12,style:'font-size:12px;fill:#fff;paint-order:stroke;stroke:#0a1726;stroke-width:3px;stroke-linejoin:round'},name));}}s.append(node('text',{x:14,y:24,style:'font-size:12px;fill:#d8e5f0'},'N ↑'));const legend=$('mapLegend'),r=html('div','legend-ramp');r.style.background='linear-gradient(90deg,'+ramp(0)+','+ramp(1)+')';legend.append(html('span','',fmt(low)),r,html('span','',fmt(high)),html('span','',mode==='price'?'元 / ㎡':'条'));$('mapGrid').textContent='约500米网格 · '+(mode==='price'?'挂牌单价中位数':'采集房源数量');}
+function drawDetails(){const body=$('detailBody');body.replaceChildren();const count=20,start=page*count;for(const r of filtered.slice(start,start+count)){const tr=html('tr'),name=html('td');name.append(html('div','',r.community),html('small','listing-id',r.listing_id));tr.append(name);for(const value of [r.subdistrict_raw,r.layout,r.orientation,fmt(num(r.area_sqm),2),fmt(num(r.total_price_wan),1),fmt(num(r.unit_price_yuan))])tr.append(html('td','',value||'未标注'));const mark=html('td','',r.suspected_duplicate_group?'同条件疑似重复':r.occurrence_count>1?'同编号展示 '+r.occurrence_count+' 次':'—');tr.append(mark);const td=html('td');if(/^https:\/\//i.test(r.url||'')){const a=html('a','','查看 ↗');a.href=r.url;a.target='_blank';a.rel='noopener noreferrer';td.append(a);}else td.textContent='—';tr.append(td);body.append(tr);}if(!filtered.length){const td=html('td','','当前筛选暂无房源');td.colSpan=9;const tr=html('tr');tr.append(td);body.append(tr);}$('pageLabel').textContent='共 '+fmt(filtered.length)+' 条 · 第 '+(page+1)+' / '+Math.max(1,Math.ceil(filtered.length/count))+' 页';$('previousPage').disabled=page===0;$('nextPage').disabled=start+count>=filtered.length;}
+function drawPrices(){
+ if(!filtered.length)return empty('priceChart');
+ const edges=[0,8000,12000,16000,20000,30000,Infinity],names=['<8千','8千–1.2万','1.2–1.6万','1.6–2万','2–3万','≥3万'];
+ const counts=names.map((_,i)=>filtered.filter(r=>r.unit_price_yuan>=edges[i]&&r.unit_price_yuan<edges[i+1]).length),w=$('priceChart').clientWidth,h=$('priceChart').clientHeight,s=chart('priceChart',w,h),max=Math.max(...counts,1),cw=w/6,base=h-28,range=Math.max(20,h-54);
+ for(let i=0;i<counts.length;i++){
+  const x=cw*i+cw/2,height=counts[i]/max*range,bw=Math.min(46,cw*.57);
+  const bar=node('rect',{x:x-bw/2,y:base-height,width:bw,height,rx:3,fill:i===2?'#edb875':'#50a8ac'});
+  tip(bar,names[i]+' 元/㎡：'+counts[i]+' 条');
+  s.append(bar,node('text',{x,y:base-height-8,'text-anchor':'middle',class:'chart-value'},fmt(counts[i])),node('text',{x,y:h-7,'text-anchor':'middle',class:'bin-label'},names[i]));
+ }line(s,0,base+1,w,base+1);
+}
+function render(resetPage=true){const search=$('search').value.trim().toLowerCase(),sub=$('subdistrict').value,rm=$('rooms').value,bound=id=>$(id).value.trim()===''?null:Number($(id).value),amin=bound('areaMin'),amax=bound('areaMax'),pmin=bound('priceMin'),pmax=bound('priceMax');filtered=rows.filter(r=>(!search||String(r.community).toLowerCase().includes(search))&&(!sub||r.__region===sub)&&(!rm||r.__room===+rm)&&(amin===null||finite(r.area_sqm)&&r.area_sqm>=amin)&&(amax===null||finite(r.area_sqm)&&r.area_sqm<=amax)&&(pmin===null||finite(r.total_price_wan)&&r.total_price_wan>=pmin)&&(pmax===null||finite(r.total_price_wan)&&r.total_price_wan<=pmax));if(resetPage)page=0;$('metricCount').textContent=fmt(filtered.length);$('metricCommunities').textContent=fmt(new Set(filtered.map(communityKey)).size);$('metricUnit').textContent=fmt(median(filtered.map(r=>r.unit_price_yuan)),1);$('metricTotal').textContent=fmt(median(filtered.map(r=>r.total_price_wan)),1);$('metricArea').textContent=fmt(median(filtered.map(r=>r.area_sqm)),2);$('filterCount').textContent='显示 '+fmt(filtered.length)+' / '+fmt(rows.length)+' 条';bars('regionChart',group(filtered,r=>r.__region).map(([name,a])=>({name,value:median(a.map(r=>r.unit_price_yuan)),n:a.length})).filter(g=>g.value!==null).sort((a,b)=>b.value-a.value),'price');bars('directionChart',group(filtered,r=>label(r.orientation)).map(([name,a])=>({name,value:a.length})).sort((a,b)=>b.value-a.value));bars('communityChart',group(filtered,communityKey).map(([key,a])=>({name:label(a[0].community),value:a.length})).sort((a,b)=>b.value-a.value).slice(0,10),'count',true);drawRooms();drawScatter();drawMap();drawDetails();drawPrices();$('footerSummary').textContent='普通住宅挂牌样本 · 价格为挂牌价';}
+for(const name of [...new Set(rows.map(r=>r.__region))].sort()){const o=html('option','',name);o.value=name;$('subdistrict').append(o);}const dates=data.observation_dates||[...new Set(rows.map(r=>r.observation_date).filter(Boolean))].sort();$('observation').textContent=dates.length?dates.join(' — ')+' · 北京时间':'暂无观察数据';$('filters').addEventListener('submit',e=>e.preventDefault());let inputTimer;$('filters').addEventListener('input',e=>{clearTimeout(inputTimer);if(e.target.tagName==='SELECT')render();else inputTimer=setTimeout(render,150);});$('filters').addEventListener('reset',()=>{clearTimeout(inputTimer);setTimeout(render,0);});for(const [id,value]of [['modePrice','price'],['modeCount','count']])$(id).addEventListener('click',()=>{mode=value;for(const [bid,m]of [['modePrice','price'],['modeCount','count']]){$(bid).classList.toggle('active',mode===m);$(bid).setAttribute('aria-pressed',String(mode===m));}drawMap();});$('detailsButton').addEventListener('click',()=>$('details').showModal());$('closeDetails').addEventListener('click',()=>$('details').close());$('previousPage').addEventListener('click',()=>{page--;drawDetails();});$('nextPage').addEventListener('click',()=>{page++;drawDetails();});$('download').addEventListener('click',()=>{const fields=[['房源编号','listing_id'],['小区','community'],['展示片区','__region'],['平台原片区','subdistrict_raw'],['户型','layout'],['朝向','orientation'],['面积（㎡）','area_sqm'],['挂牌总价（万元）','total_price_wan'],['挂牌单价（元/㎡）','unit_price_yuan'],['观察日期','observation_date'],['详情链接','url'],['同编号展示次数','occurrence_count'],['疑似重复组','suspected_duplicate_group'],['类型审核依据','type_basis'],['原坐标经度','longitude'],['原坐标纬度','latitude'],['原坐标系','coordinate_system'],['坐标证据链接','coordinate_source'],['坐标证据时间','coordinate_evidence_at']];const csv=v=>'"'+String(v??'').replace(/^[=+@-]/,"'$&").replace(/"/g,'""')+'"';const text='\uFEFF'+[fields.map(f=>csv(f[0])).join(','),...filtered.map(r=>fields.map(f=>csv(r[f[1]])).join(','))].join('\r\n');const url=URL.createObjectURL(new Blob([text],{type:'text/csv;charset=utf-8;'})),a=html('a');a.href=url;a.download='东湖高新区房源_'+(dates[0]||'当前筛选')+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
+$('methodButton').addEventListener('click',()=>$('method').showModal());
+$('closeMethod').addEventListener('click',()=>$('method').close());
+function toast(message){$('toast').textContent=message;$('toast').classList.add('visible');setTimeout(()=>$('toast').classList.remove('visible'),2600);}
+$('fullscreen').addEventListener('click',async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}catch{toast('当前窗口不支持全屏，可在浏览器按 F11。');}});
+document.addEventListener('fullscreenchange',()=>{$('fullscreen').textContent=document.fullscreenElement?'退出全屏 ↙':'全屏展示 ↗';});
+for(const id of ['details','method'])$(id).addEventListener('click',e=>{if(e.target===$(id)){const r=$(id).getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)$(id).close();}});
+let resizeTimer;window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>render(false),120);});render();
 })();
