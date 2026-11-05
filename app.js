@@ -12,9 +12,9 @@ const room=r=>{const v=Number.isInteger(r.room_count)?r.room_count:Number((r.lay
 const roomName=n=>({'1':'一室','2':'两室','3':'三室','4':'四室及以上'})[n]||'未标注';
 const communityKey=r=>String(r.community_key||r.community_id||r.community||'未标注');
 const rows=raw.map(r=>({...r,__region:label(r.subdistrict),__room:room(r)}));
-let filtered=rows, mode='price', page=0, mapRender=0;
+let filtered=rows, mode='price', page=0;
 const selection={orientation:'',community:'',unitRange:null,mapCell:null};
-let tableSort={key:'',direction:1},selectedListing='',mapZoom=1,mapPan={x:0,y:0},ignoreMapClickUntil=0;
+let tableSort={key:'',direction:1},selectedListing='';
 const node=(tag,attrs={},text)=>{const n=document.createElementNS(NS,tag);Object.entries(attrs).forEach(([k,v])=>n.setAttribute(k,v));if(text!==undefined)n.textContent=text;return n;};
 const html=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;};
 function chart(id,w,h){const box=$(id);box.replaceChildren();const s=node('svg',{class:'chart-enter',viewBox:'0 0 '+w+' '+h,preserveAspectRatio:'xMidYMid meet'});box.append(s);return s;}
@@ -27,11 +27,11 @@ const tooltip=html('div','chart-tooltip');tooltip.id='chartTooltip';tooltip.setA
 function hideTip(){tooltip.hidden=true;}
 function showTip(text,x,y){tooltip.textContent=text;tooltip.hidden=false;const r=tooltip.getBoundingClientRect();tooltip.style.left=Math.max(8,Math.min(innerWidth-r.width-8,x+15))+'px';tooltip.style.top=Math.max(8,Math.min(innerHeight-r.height-8,y+16))+'px';}
 hideTip();
-document.addEventListener('pointermove',e=>{const target=e.target.closest?.('[data-tip]');if(target)showTip(target.dataset.tip,e.clientX,e.clientY);else if(!e.target.closest?.('.scatter-surface'))hideTip();});
+document.addEventListener('pointermove',e=>{const target=e.target.closest?.('[data-tip]');if(target)showTip(target.dataset.tip,e.clientX,e.clientY);else if(!e.target.closest?.('.scatter-surface, #mapChart'))hideTip();});
 document.addEventListener('pointerdown',e=>{if(!e.target.closest?.('.chart'))hideTip();});
 document.addEventListener('pointerout',e=>{if(!e.relatedTarget)hideTip();});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')hideTip();});
-function action(el,name,callback){el.classList.add('interactive-mark');el.setAttribute('tabindex','0');el.setAttribute('role','button');el.setAttribute('aria-label',name);el.addEventListener('click',e=>{if(performance.now()<ignoreMapClickUntil)return;hideTip();callback(e);});el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();hideTip();callback(e);}});el.addEventListener('focus',()=>{if(el.dataset.tip){const b=el.getBoundingClientRect();showTip(el.dataset.tip,b.x+b.width/2,b.y+b.height/2);}});el.addEventListener('blur',hideTip);return el;}
+function action(el,name,callback){el.classList.add('interactive-mark');el.setAttribute('tabindex','0');el.setAttribute('role','button');el.setAttribute('aria-label',name);el.addEventListener('click',e=>{hideTip();callback(e);});el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();hideTip();callback(e);}});el.addEventListener('focus',()=>{if(el.dataset.tip){const b=el.getBoundingClientRect();showTip(el.dataset.tip,b.x+b.width/2,b.y+b.height/2);}});el.addEventListener('blur',hideTip);return el;}
 function changeChartFilter(type,value){
  clearTimeout(inputTimer);
  if(type==='region')$('subdistrict').value=$('subdistrict').value===value?'':value;
@@ -56,8 +56,6 @@ function renderSelections(){
 }
 function tableRows(){if(!tableSort.key)return filtered;const key=tableSort.key;return filtered.slice().sort((a,b)=>(Number(a[key])-Number(b[key]))*tableSort.direction||String(a.listing_id).localeCompare(String(b.listing_id)));}
 function showListing(r){const list=tableRows(),index=list.findIndex(x=>x.listing_id===r.listing_id);selectedListing=r.listing_id;page=Math.max(0,Math.floor(index/20));drawDetails();if(!$('details').open)$('details').showModal();$('detailBody').querySelector('.selected-listing')?.scrollIntoView({block:'nearest'});}
-function applyMapView(svg){if(!svg)return;const w=+svg.dataset.width,h=+svg.dataset.height,vw=w/mapZoom,vh=h/mapZoom;mapPan.x=Math.max(-w*(1-1/mapZoom)/2,Math.min(w*(1-1/mapZoom)/2,mapPan.x));mapPan.y=Math.max(-h*(1-1/mapZoom)/2,Math.min(h*(1-1/mapZoom)/2,mapPan.y));svg.setAttribute('viewBox',[w/2-vw/2+mapPan.x,h/2-vh/2+mapPan.y,vw,vh].join(' '));$('mapChart').classList.toggle('zoomed',mapZoom>1);$('mapZoomOut').disabled=mapZoom===1;$('mapZoomIn').disabled=mapZoom>=3.5;}
-function bindMapPan(svg,w,h){svg.dataset.width=w;svg.dataset.height=h;applyMapView(svg);let drag=null;svg.addEventListener('pointerdown',e=>{if(mapZoom<=1||e.button!==0)return;drag={x:e.clientX,y:e.clientY,px:mapPan.x,py:mapPan.y,moved:false};});svg.addEventListener('pointermove',e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(!drag.moved&&Math.hypot(dx,dy)<5)return;drag.moved=true;svg.setPointerCapture(e.pointerId);const b=svg.getBoundingClientRect();mapPan.x=drag.px-dx*w/mapZoom/b.width;mapPan.y=drag.py-dy*h/mapZoom/b.height;hideTip();applyMapView(svg);});const finish=()=>{if(drag?.moved)ignoreMapClickUntil=performance.now()+250;drag=null;};svg.addEventListener('pointerup',finish);svg.addEventListener('pointercancel',finish);}
 function regression(list){const a=list.filter(r=>finite(r.area_sqm)&&finite(r.total_price_wan));const n=a.length;if(n<2)return null;const mx=a.reduce((v,r)=>v+Number(r.area_sqm),0)/n,my=a.reduce((v,r)=>v+Number(r.total_price_wan),0)/n;const xx=a.reduce((v,r)=>v+(r.area_sqm-mx)**2,0);if(!xx)return null;const slope=a.reduce((v,r)=>v+(r.area_sqm-mx)*(r.total_price_wan-my),0)/xx,intercept=my-slope*mx;const ss=a.reduce((v,r)=>v+(r.total_price_wan-my)**2,0),se=a.reduce((v,r)=>v+(r.total_price_wan-intercept-slope*r.area_sqm)**2,0);return {n,slope,intercept,r_squared:ss?1-se/ss:null};}
 function bars(id,groups,kind='count',twoColumns=false){
  if(!groups.length)return empty(id);
@@ -127,13 +125,81 @@ function wgs84(lng,lat,system){const type=String(system||'').toLowerCase().repla
 function located(list){return list.map(r=>{if(!finite(r.longitude)||!finite(r.latitude))return null;const p=wgs84(+r.longitude,+r.latitude,r.coordinate_system);return p&&p[0]>113.5&&p[0]<115&&p[1]>29.5&&p[1]<31.5?{row:r,lng:p[0],lat:p[1]}:null;}).filter(Boolean);}
 const mapAll=located(rows), STEP=.005;
 for(const p of mapAll)p.row.__mapCell=Math.floor(p.lng/STEP)+','+Math.floor(p.lat/STEP);
-function mercator(lng,lat,z){const size=256*2**z,s=Math.sin(lat*Math.PI/180);return [(lng+180)/360*size,(.5-Math.log((1+s)/(1-s))/(4*Math.PI))*size];}
-function ramp(t){const a=mode==='price'?[65,137,212]:[38,111,146],b=mode==='price'?[255,185,88]:[96,243,193];return 'rgb('+a.map((v,i)=>Math.round(v+(b[i]-v)*t)).join(',')+')';}
-function drawMap(){const points=located(filtered),generation=++mapRender;$('mapCoverage').textContent='已定位 '+fmt(points.length)+' / '+fmt(filtered.length)+' 条';$('mapLegend').replaceChildren();if(!points.length){empty('mapChart',filtered.length?'当前样本暂无已核验坐标':'当前筛选暂无样本');$('mapStatus').textContent=filtered.length?'其余图表按可用字段展示':'等待房源数据';return;}
- const w=Math.max(280,$('mapChart').clientWidth),h=Math.max(180,$('mapChart').clientHeight),s=chart('mapChart',w,h);const all=mapAll.length?mapAll:points,minLng=Math.min(...all.map(p=>p.lng))-.012,maxLng=Math.max(...all.map(p=>p.lng))+.012,minLat=Math.min(...all.map(p=>p.lat))-.01,maxLat=Math.max(...all.map(p=>p.lat))+.01;let z=14;while(z>7){const a=mercator(minLng,maxLat,z),b=mercator(maxLng,minLat,z);if(b[0]-a[0]<w&&b[1]-a[1]<h)break;z--;}
- const upper=mercator(minLng,maxLat,z),lower=mercator(maxLng,minLat,z),scale=Math.min(w/(lower[0]-upper[0]),h/(lower[1]-upper[1])),mid=mercator((minLng+maxLng)/2,(minLat+maxLat)/2,z).map(v=>v*scale),origin=[mid[0]-w/2,mid[1]-h/2],xy=(lng,lat)=>{const p=mercator(lng,lat,z);return [p[0]*scale-origin[0],p[1]*scale-origin[1]];};s.append(node('rect',{width:w,height:h,fill:'#0b1928'}));for(let x=0;x<w;x+=64)line(s,x,0,x,h,'#162b3e');for(let y=0;y<h;y+=64)line(s,0,y,w,y,'#162b3e');let loaded=0,failed=0;const tiles=node('g',{opacity:.28,class:'basemap'});s.append(tiles);const tileSize=256*scale,xmin=Math.floor(origin[0]/tileSize),xmax=Math.floor((origin[0]+w)/tileSize),ymin=Math.floor(origin[1]/tileSize),ymax=Math.floor((origin[1]+h)/tileSize);$('mapStatus').textContent='底图加载中';for(let tx=xmin;tx<=xmax;tx++)for(let ty=ymin;ty<=ymax;ty++){const img=node('image',{x:tx*tileSize-origin[0],y:ty*tileSize-origin[1],width:tileSize,height:tileSize,href:'https://tile.openstreetmap.org/'+z+'/'+tx+'/'+ty+'.png'});img.addEventListener('load',()=>{loaded++;if(generation===mapRender)$('mapStatus').textContent='实际坐标 · 在线底图';});img.addEventListener('error',()=>{img.remove();failed++;if(generation===mapRender&&!loaded)$('mapStatus').textContent='底图未加载 · 显示实际坐标网格';});tiles.append(img);}
- const groups=group(points,p=>Math.floor(p.lng/STEP)+','+Math.floor(p.lat/STEP)),values=groups.map(([k,a])=>mode==='count'?a.length:median(a.map(p=>p.row.unit_price_yuan))).filter(finite),low=Math.min(...values),high=Math.max(...values);for(const [key,a]of groups){const value=mode==='count'?a.length:median(a.map(p=>p.row.unit_price_yuan));if(value===null)continue;const [gx,gy]=key.split(',').map(Number),nw=xy(gx*STEP,(gy+1)*STEP),se=xy((gx+1)*STEP,gy*STEP);const box=node('rect',{x:nw[0],y:nw[1],width:Math.max(3,se[0]-nw[0]),height:Math.max(3,se[1]-nw[1]),fill:ramp(high===low?.65:(value-low)/(high-low)),opacity:.96,stroke:'#0b1b2b','stroke-width':.6});const names=[...new Set(a.map(p=>label(p.row.community)))];tip(box,names.slice(0,8).join('、')+(names.length>8?'等':'')+'\n样本 '+a.length+' 条\n'+(mode==='price'?'单价中位数 '+fmt(value)+' 元/㎡':'采集数量 '+fmt(value)+' 条'));box.dataset.mapCell=key;action(box,'查看网格内'+a.length+'条房源',()=>changeChartFilter('mapCell',key));s.append(box);}
- const communities=group(points,p=>communityKey(p.row)).sort((a,b)=>b[1].length-a[1].length);const placed=[];for(const [,a]of communities.slice(0,12)){const p=a[0],pos=xy(p.lng,p.lat),title=label(p.row.community),name=title.length>11?title.slice(0,10)+'…':title,tw=name.length*12;const dot=node('circle',{cx:pos[0],cy:pos[1],r:2.5,fill:'#f0f7ff'});tip(dot,title+' · '+a.length+' 条\n点击筛选小区');action(dot,'筛选'+title,()=>changeChartFilter('community',communityKey(p.row)));s.append(dot);let best=null;for(const [dx,dy]of [[6,-7],[6,18],[-tw-6,-7],[-tw-6,18],[6,-24],[-tw-6,-24]]){const box={x:pos[0]+dx,y:pos[1]+dy-12,w:tw,h:16};if(box.x<4||box.y<25||box.x+box.w>w-4||box.y+box.h>h-4)continue;if(placed.some(b=>box.x<b.x+b.w+5&&box.x+box.w+5>b.x&&box.y<b.y+b.h+3&&box.y+box.h+3>b.y))continue;best=box;break;}if(best){placed.push(best);s.append(node('text',{x:best.x,y:best.y+12,style:'font-size:12px;fill:#fff;paint-order:stroke;stroke:#0a1726;stroke-width:3px;stroke-linejoin:round'},name));}}s.append(node('text',{x:14,y:24,style:'font-size:12px;fill:#d8e5f0'},'N ↑'));bindMapPan(s,w,h);const legend=$('mapLegend'),r=html('div','legend-ramp');r.style.background='linear-gradient(90deg,'+ramp(0)+','+ramp(1)+')';legend.append(html('span','',fmt(low)),r,html('span','',fmt(high)),html('span','',mode==='price'?'元 / ㎡':'条'));$('mapGrid').textContent='约500米网格 · '+(mode==='price'?'挂牌单价中位数':'采集房源数量');}
+// Keep the original WGS84 grid IDs for reproducible filtering. Only the
+// display is handled by Baidu: source positions are already BD09; polygons
+// declare WGS84 so JSAPI 4.0 performs its own coordinate conversion.
+let baiduMap=null, mapReady=null, mapError='', mapOverlays=[], mapLabels=[], mapNeedsFit=true;
+const mapMessage=html('div','map-message');mapMessage.setAttribute('role','status');
+const mapCanvas=html('div','baidu-map');mapCanvas.id='baiduMap';
+$('mapChart').append(mapCanvas,mapMessage);
+function mapNotice(message){mapMessage.textContent=message;mapMessage.hidden=!message;}
+function ramp(t){const a=mode==='price'?[65,137,212]:[38,111,146],b=mode==='price'?[255,185,88]:[96,243,193];return '#'+a.map((v,i)=>Math.round(v+(b[i]-v)*t).toString(16).padStart(2,'0')).join('');}
+function updateMapControls(){for(const id of ['mapZoomIn','mapZoomOut','mapReset'])$(id).disabled=!baiduMap;if(baiduMap){$('mapZoomIn').disabled=baiduMap.getZoom()>=19;$('mapZoomOut').disabled=baiduMap.getZoom()<=10;}}
+function fitMap(){if(!baiduMap||!mapAll.length)return;baiduMap.setViewport(mapAll.map(p=>new BMap.Point(+p.row.longitude,+p.row.latitude)),{margins:[40,35,35,35],enableAnimation:false});mapNeedsFit=false;}
+function placeMapLabels(){if(!baiduMap)return;const placed=[],w=mapCanvas.clientWidth,h=mapCanvas.clientHeight;for(const {label:mark,point,title}of mapLabels){const p=baiduMap.pointToPixel(point),tw=title.length*11+14;let found=null;for(const [dx,dy]of [[6,-23],[6,8],[-tw-6,-23],[-tw-6,8]]){const b={x:p.x+dx,y:p.y+dy,w:tw,h:24};if(b.x<4||b.y<42||b.x+b.w>w-4||b.y+b.h>h-30)continue;if(placed.some(a=>b.x<a.x+a.w+8&&b.x+b.w+8>a.x&&b.y<a.y+a.h+5&&b.y+b.h+5>a.y))continue;found={...b,dx,dy};break;}if(found){placed.push(found);mark.setOffset(new BMap.Size(found.dx,found.dy));mark.show();}else mark.hide();}}
+function loadBaiduMap(){
+ if(mapReady)return mapReady;
+ mapReady=new Promise((resolve,reject)=>{
+  const ak=window.DONGHU_MAP_CONFIG?.ak;
+  if(!ak){reject(new Error('尚未配置百度地图 AK'));return;}
+  const timer=setTimeout(()=>reject(new Error('百度地图加载超时，请检查网络或 AK 域名白名单')),20000);
+  window.initDonghuBaiduMap=()=>{clearTimeout(timer);resolve();};
+  const script=document.createElement('script');script.src='https://api.map.baidu.com/api?v=4.0&ak='+encodeURIComponent(ak)+'&callback=initDonghuBaiduMap';
+  script.onerror=()=>{clearTimeout(timer);reject(new Error('百度地图加载失败，请检查网络连接'));};document.head.append(script);
+ }).then(()=>{
+  baiduMap=new BMap.Map(mapCanvas,{minZoom:10,maxZoom:19,enableAutoResize:true,enableWheelZoom:true,enableKeyboard:true,enableRotate:false,enableTilt:false,enableMapClick:false});
+  baiduMap.centerAndZoom(new BMap.Point(114.45,30.47),11);
+  baiduMap.setMapStyle({styleJson:[
+   {featureType:'land',elementType:'geometry',stylers:{color:'#102632ff'}},
+   {featureType:'water',elementType:'geometry',stylers:{color:'#153c50ff'}},
+   {featureType:'green',elementType:'geometry',stylers:{color:'#1b393bff'}},
+   {featureType:'building',elementType:'geometry',stylers:{color:'#203c49ff'}},
+   {featureType:'road',elementType:'geometry',stylers:{color:'#36525eff'}},
+   {featureType:'all',elementType:'labels.text.fill',stylers:{color:'#a9c1cdff'}},
+   {featureType:'all',elementType:'labels.text.stroke',stylers:{color:'#102632ff'}},
+   {featureType:'poilabel',elementType:'labels.icon',stylers:{visibility:'off'}}
+  ]});
+  baiduMap.addEventListener('zoomend',()=>{updateMapControls();placeMapLabels();});
+  baiduMap.addEventListener('moveend',placeMapLabels);
+  baiduMap.addEventListener('dragstart',hideTip);
+  mapCanvas.addEventListener('pointerleave',hideTip);
+  fitMap();updateMapControls();
+  $('mapChart').dataset.provider='baidu';
+  drawMap();
+ }).catch(error=>{mapError=error.message;mapNotice(mapError);$('mapStatus').textContent='地图暂不可用';updateMapControls();});
+ return mapReady;
+}
+function drawMap(){
+ const points=mapAll.filter(p=>filtered.includes(p.row));
+ $('mapCoverage').textContent='已定位 '+fmt(points.length)+' / '+fmt(filtered.length)+' 条';
+ $('mapLegend').replaceChildren();
+ $('mapGrid').textContent='约500米网格 · '+(mode==='price'?'挂牌单价中位数':'采集房源数量');
+ if(!baiduMap){mapNotice(mapError||'正在加载百度地图…');$('mapStatus').textContent=mapError?'地图暂不可用':'百度地图加载中';loadBaiduMap();return;}
+ for(const overlay of mapOverlays){baiduMap.removeOverlay(overlay);overlay.dispose?.();}mapOverlays=[];mapLabels=[];
+ if(!points.length){mapNotice(filtered.length?'当前样本暂无已核验坐标':'当前筛选暂无样本');$('mapStatus').textContent='百度地图 · 暂无定位样本';return;}
+ mapNotice('');
+ const groups=group(points,p=>p.row.__mapCell),values=groups.map(([,a])=>mode==='count'?a.length:median(a.map(p=>p.row.unit_price_yuan))).filter(finite),low=Math.min(...values),high=Math.max(...values);
+ const add=overlay=>{baiduMap.addOverlay(overlay);mapOverlays.push(overlay);};
+ const showMapTip=(text,e)=>{const b=mapCanvas.getBoundingClientRect(),pixel=e.pixel||baiduMap.pointToPixel(e.latLng||e.point);if(pixel)showTip(text,b.left+pixel.x,b.top+pixel.y);};
+ for(const [key,a]of groups){
+  const value=mode==='count'?a.length:median(a.map(p=>p.row.unit_price_yuan));if(value===null)continue;
+  const [gx,gy]=key.split(',').map(Number),corners=[[gx*STEP,gy*STEP],[(gx+1)*STEP,gy*STEP],[(gx+1)*STEP,(gy+1)*STEP],[gx*STEP,(gy+1)*STEP]];
+  const polygon=new BMap.Polygon(corners.map(p=>new BMap.Point(...p)),{coordType:'BMAP_COORD_WGS84',fillColor:ramp(high===low?.65:(value-low)/(high-low)),fillOpacity:.72,strokeColor:selection.mapCell===key?'#ffffff':'#83b5bd',strokeWeight:selection.mapCell===key?3:1,strokeOpacity:.8});
+  const names=[...new Set(a.map(p=>label(p.row.community)))],text=names.slice(0,8).join('、')+(names.length>8?'等':'')+'\n样本 '+a.length+' 条\n'+(mode==='price'?'单价中位数 '+fmt(value)+' 元/㎡':'采集数量 '+fmt(value)+' 条')+'\n点击筛选，再次点击取消';
+  polygon.addEventListener('mousemove',e=>showMapTip(text,e));polygon.addEventListener('mouseout',hideTip);
+  polygon.addEventListener('click',()=>{hideTip();changeChartFilter('mapCell',key);});add(polygon);
+ }
+ const communities=group(points,p=>communityKey(p.row)).sort((a,b)=>b[1].length-a[1].length);
+ for(const [,a]of communities.slice(0,8)){
+  const p=a[0],title=label(p.row.community),marker=new BMap.Label(title,{position:new BMap.Point(+p.row.longitude,+p.row.latitude),offset:new BMap.Size(5,-18)});
+  marker.setStyle({color:'#eef7fa',backgroundColor:'#102632df',border:'1px solid #4b7584',borderRadius:'3px',padding:'3px 6px',fontSize:'11px',lineHeight:'16px',cursor:'pointer'});
+  marker.addEventListener('click',()=>changeChartFilter('community',communityKey(p.row)));add(marker);mapLabels.push({label:marker,point:new BMap.Point(+p.row.longitude,+p.row.latitude),title});
+ }
+ const r=html('div','legend-ramp');r.style.background='linear-gradient(90deg,'+ramp(0)+','+ramp(1)+')';$('mapLegend').append(html('span','',fmt(low)),r,html('span','',fmt(high)),html('span','',mode==='price'?'元 / ㎡':'条'));
+ $('mapStatus').textContent='百度地图 · 拖动平移 / 滚轮缩放';
+ $('mapChart').dataset.gridCount=String(groups.length);
+ if(mapNeedsFit)fitMap();updateMapControls();placeMapLabels();
+}
 function drawDetails(){const body=$('detailBody');body.replaceChildren();document.querySelectorAll('[data-sort]').forEach(b=>{b.parentElement.setAttribute('aria-sort',tableSort.key===b.dataset.sort?(tableSort.direction===1?'ascending':'descending'):'none');b.querySelector('span').textContent=tableSort.key===b.dataset.sort?(tableSort.direction===1?' ↑':' ↓'):' ↕';});const count=20,start=page*count;for(const r of tableRows().slice(start,start+count)){const tr=html('tr',r.listing_id===selectedListing?'selected-listing':''),name=html('td');tr.dataset.listingId=r.listing_id;name.append(html('div','',r.community),html('small','listing-id',r.listing_id));tr.append(name);for(const value of [r.subdistrict_raw,r.layout,r.orientation,fmt(num(r.area_sqm),2),fmt(num(r.total_price_wan),1),fmt(num(r.unit_price_yuan))])tr.append(html('td','',value||'未标注'));const mark=html('td','',r.suspected_duplicate_group?'同条件疑似重复':r.occurrence_count>1?'同编号展示 '+r.occurrence_count+' 次':'—');tr.append(mark);const td=html('td');if(/^https:\/\//i.test(r.url||'')){const a=html('a','','查看 ↗');a.href=r.url;a.target='_blank';a.rel='noopener noreferrer';td.append(a);}else td.textContent='—';tr.append(td);body.append(tr);}if(!filtered.length){const td=html('td','','当前筛选暂无房源');td.colSpan=9;const tr=html('tr');tr.append(td);body.append(tr);}$('pageLabel').textContent='共 '+fmt(filtered.length)+' 条 · 第 '+(page+1)+' / '+Math.max(1,Math.ceil(filtered.length/count))+' 页';$('previousPage').disabled=page===0;$('nextPage').disabled=start+count>=filtered.length;}
 function drawPrices(){
  if(!filtered.length)return empty('priceChart');
@@ -157,7 +223,9 @@ for(const id of ['details','method'])$(id).addEventListener('click',e=>{if(e.tar
 
 for(const id of ['regionChart','roomChart','directionChart','communityChart','mapChart','priceChart','scatterChart'])$(id).setAttribute('role','group');
 document.querySelectorAll('[data-sort]').forEach(b=>b.addEventListener('click',()=>{tableSort={key:b.dataset.sort,direction:tableSort.key===b.dataset.sort?-tableSort.direction:1};page=0;drawDetails();}));
-for(const [id,factor]of [['mapZoomIn',1.4],['mapZoomOut',1/1.4]])$(id).addEventListener('click',()=>{mapZoom=Math.max(1,Math.min(3.5,mapZoom*factor));if(mapZoom<1.01)mapZoom=1;applyMapView($('mapChart').querySelector('svg'));});
-$('mapReset').addEventListener('click',()=>{mapZoom=1;mapPan={x:0,y:0};applyMapView($('mapChart').querySelector('svg'));});
+$('mapZoomIn').addEventListener('click',()=>baiduMap?.zoomIn());
+$('mapZoomOut').addEventListener('click',()=>baiduMap?.zoomOut());
+$('mapReset').addEventListener('click',()=>{fitMap();hideTip();});
+updateMapControls();
 let resizeTimer;window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>render(false),120);});render();
 })();

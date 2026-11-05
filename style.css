@@ -65,3 +65,10 @@ th[aria-sort="ascending"] .sort-button,th[aria-sort="descending"] .sort-button{c
 @media(max-width:800px){.active-filters{height:29px;margin-bottom:10px}.map-tools{right:24px;top:90px}.chart-tooltip{font-size:12px}.interaction-hint{font-size:10px}}
 
 .map-panel{position:relative}
+
+/* Baidu owns the map canvas, controls and attribution. */
+.baidu-map{position:absolute;inset:0;width:100%;height:100%;font-family:inherit}
+.map-message{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;padding:24px;background:#102632e8;color:#bbd0dc;font-size:12px;text-align:center;pointer-events:none}
+.map-message[hidden]{display:none}
+.map-tools{z-index:6}
+.baidu-map label{max-width:160px}
